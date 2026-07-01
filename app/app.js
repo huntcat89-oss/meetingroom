@@ -67,13 +67,6 @@ function sampleByFloor() {
 /* ============================================================
  * 플로우 REST 직접 호출 (브라우저)
  * ============================================================ */
-// 플로우 CORS 는 Authorization 헤더만 허용하므로 후보를 Authorization 으로만 제한한다.
-const AUTH_CANDS = [
-  { h: 'Authorization', v: (k) => 'Bearer ' + k },
-  { h: 'Authorization', v: (k) => k },
-];
-let authIdx = parseInt(localStorage.getItem('mr_authIdx') || '-1', 10);
-
 // 베이스에서 끝의 /user·슬래시를 떼고, 항상 /user 를 붙여 최종 경로를 만든다
 // (저장된 값이 https://api.flow.team 이든 .../user 이든 중복 없이 동작).
 function apiUrl(path) {
@@ -81,24 +74,20 @@ function apiUrl(path) {
   return host + '/user' + path;
 }
 
+// 플로우 /user API 는 Authorization: Bearer <토큰> 만 받는다.
 async function flowFetch(method, path, body) {
-  const url = apiUrl(path);
-  const tryScheme = async (cand) => {
-    const headers = { Accept: 'application/json' };
-    headers[cand.h] = cand.v(LS.key);
-    if (body) headers['Content-Type'] = 'application/json';
-    const res = await fetch(url, { method, headers, body: body ? JSON.stringify(body) : undefined });
-    let json = null; try { json = await res.json(); } catch (_) {}
-    return { status: res.status, json };
-  };
-  if (authIdx >= 0 && authIdx < AUTH_CANDS.length) return tryScheme(AUTH_CANDS[authIdx]);
-  let last = null;
-  for (let i = 0; i < AUTH_CANDS.length; i++) {
-    const r = await tryScheme(AUTH_CANDS[i]);
-    last = r;
-    if (r.status !== 401 && r.status !== 403) { authIdx = i; localStorage.setItem('mr_authIdx', String(i)); return r; }
-  }
-  return last;
+  const headers = { Accept: 'application/json', Authorization: 'Bearer ' + LS.key };
+  if (body) headers['Content-Type'] = 'application/json';
+  const res = await fetch(apiUrl(path), { method, headers, body: body ? JSON.stringify(body) : undefined });
+  let json = null; try { json = await res.json(); } catch (_) {}
+  return { status: res.status, json };
+}
+
+// 플로우 에러 응답에서 사람이 읽을 메시지를 뽑는다.
+function apiErr(r) {
+  const j = r && r.json && r.json.response;
+  const msg = j && ((j.error && j.error.message) || j.message);
+  return msg || (r ? `HTTP ${r.status}` : '네트워크 오류');
 }
 
 function ymdRange(centerYmd, backDays, fwdDays) {
@@ -207,7 +196,7 @@ async function createBooking(p) {
   if (r && r.status === 400 && withId.length) {
     r = await flowFetch('POST', '/calendars/events', { ...base, eventBody: bodyFallback });
   }
-  if (!r || r.status >= 400) throw new Error('예약 생성 실패 (' + (r ? r.status : 'network') + ')');
+  if (!r || r.status >= 400) throw new Error('예약 실패 — ' + apiErr(r));
   return { ok: true };
 }
 
@@ -594,12 +583,12 @@ async function testConn() {
   const key = $('#sApiKey').value.trim();
   if (!key) { st.className = 'settings-status'; st.textContent = '키가 없으면 샘플 데모로 동작합니다.'; return; }
   st.className = 'settings-status'; st.textContent = '연결 확인 중…';
-  const prevKey = LS.key, prevBase = LS.base; LS.key = key; LS.base = $('#sApiBase').value.trim() || 'https://api.flow.team/v1';
-  authIdx = -1; localStorage.removeItem('mr_authIdx');
+  const prevKey = LS.key, prevBase = LS.base; LS.key = key; LS.base = $('#sApiBase').value.trim() || 'https://api.flow.team';
   try {
     const r = await flowFetch('GET', '/calendars');
     if (r && r.status < 400) { st.className = 'settings-status ok'; st.textContent = '✓ 연결 성공'; }
-    else { st.className = 'settings-status bad'; st.textContent = `연결 실패 (HTTP ${r ? r.status : '?'}). 키를 확인하세요.`; }
+    else if (r && r.status === 401) { st.className = 'settings-status bad'; st.textContent = `인증 실패 — ${apiErr(r)} 개인 API 키(발급 위치·만료 여부)를 확인하세요.`; }
+    else { st.className = 'settings-status bad'; st.textContent = `연결 실패 (HTTP ${r ? r.status : '?'}) — ${apiErr(r)}`; }
   } catch (e) {
     st.className = 'settings-status bad';
     st.textContent = '요청 차단됨 — 브라우저 CORS 정책일 수 있습니다. 로컬 server.py 프록시 사용을 권장합니다.';
@@ -610,7 +599,6 @@ function saveSettings() {
   LS.key = $('#sApiKey').value.trim();
   LS.base = $('#sApiBase').value.trim();
   _employees = null; _employeesLoading = null; // 키 바뀌면 구성원 캐시 무효화
-  authIdx = -1; localStorage.removeItem('mr_authIdx');
   $('#settingsModal').hidden = true;
   updateModeBadge();
   toast(mode() === 'direct' ? '실데이터 모드로 저장됨' : '샘플 데모 모드', 'ok');
