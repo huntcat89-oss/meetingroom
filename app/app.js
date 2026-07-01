@@ -6,8 +6,8 @@
 const LS = {
   get key() { return localStorage.getItem('mr_apiKey') || ''; },
   set key(v) { v ? localStorage.setItem('mr_apiKey', v) : localStorage.removeItem('mr_apiKey'); },
-  get base() { return localStorage.getItem('mr_apiBase') || 'https://api.flow.team/user'; },
-  set base(v) { localStorage.setItem('mr_apiBase', v || 'https://api.flow.team/user'); },
+  get base() { return localStorage.getItem('mr_apiBase') || 'https://api.flow.team'; },
+  set base(v) { localStorage.setItem('mr_apiBase', v || 'https://api.flow.team'); },
   get cal() { return localStorage.getItem('mr_calendarSrno') || ''; },
   set cal(v) { v ? localStorage.setItem('mr_calendarSrno', v) : localStorage.removeItem('mr_calendarSrno'); },
 };
@@ -67,16 +67,22 @@ function sampleByFloor() {
 /* ============================================================
  * 플로우 REST 직접 호출 (브라우저)
  * ============================================================ */
+// 플로우 CORS 는 Authorization 헤더만 허용하므로 후보를 Authorization 으로만 제한한다.
 const AUTH_CANDS = [
   { h: 'Authorization', v: (k) => 'Bearer ' + k },
   { h: 'Authorization', v: (k) => k },
-  { h: 'api-key', v: (k) => k },
-  { h: 'x-api-key', v: (k) => k },
 ];
 let authIdx = parseInt(localStorage.getItem('mr_authIdx') || '-1', 10);
 
+// 베이스에서 끝의 /user·슬래시를 떼고, 항상 /user 를 붙여 최종 경로를 만든다
+// (저장된 값이 https://api.flow.team 이든 .../user 이든 중복 없이 동작).
+function apiUrl(path) {
+  const host = LS.base.replace(/\/+$/, '').replace(/\/user$/, '');
+  return host + '/user' + path;
+}
+
 async function flowFetch(method, path, body) {
-  const url = LS.base.replace(/\/$/, '') + path;
+  const url = apiUrl(path);
   const tryScheme = async (cand) => {
     const headers = { Accept: 'application/json' };
     headers[cand.h] = cand.v(LS.key);
@@ -85,7 +91,7 @@ async function flowFetch(method, path, body) {
     let json = null; try { json = await res.json(); } catch (_) {}
     return { status: res.status, json };
   };
-  if (authIdx >= 0) return tryScheme(AUTH_CANDS[authIdx]);
+  if (authIdx >= 0 && authIdx < AUTH_CANDS.length) return tryScheme(AUTH_CANDS[authIdx]);
   let last = null;
   for (let i = 0; i < AUTH_CANDS.length; i++) {
     const r = await tryScheme(AUTH_CANDS[i]);

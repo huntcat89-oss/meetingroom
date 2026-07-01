@@ -43,7 +43,7 @@ const FLOORS = [
 
 - **샘플 데모 (기본)** — 키 없이 바로 동작. UI·자동추천·중복검사 흐름을 그대로 체험. 실제 예약은 생성되지 않음.
 - **플로우 실데이터** — **개인용** 플로우 API 키를 입력하면 브라우저가 플로우 `user` API 를 직접 호출합니다. **키는 이 브라우저(localStorage)에만 저장**되고 서버·저장소로 전송되지 않습니다(브라우저 저장소를 지우지 않는 한 유지).
-  - 베이스 URL 기본값: `https://api.flow.team/user`
+  - 베이스 URL 기본값: `https://api.flow.team` (경로에 `/user` 는 앱이 자동으로 붙임)
   - 사용하는 API: 일정 조회·생성 [`/user/calendars/events`](https://api.flow.team/docs/api/user/calendars), 참석자 검색용 구성원 [`/user/employees`](https://api.flow.team/docs/api/user/employees)
   - 예약 생성 캘린더는 층 프로젝트(`colaboSrno`)로 `/calendars` 에서 자동 역매핑합니다.
 
