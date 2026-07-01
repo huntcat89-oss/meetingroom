@@ -226,12 +226,13 @@ function toast(msg, kind) {
  * 상태
  * ============================================================ */
 const today = new Date();
+const TODAY_YMD = `${today.getFullYear()}${pad(today.getMonth() + 1)}${pad(today.getDate())}`;
 const S = {
   step: 1,
   viewY: today.getFullYear(), viewM: today.getMonth(), // 캘린더 표시 월
-  date: null,        // 'YYYYMMDD'
+  date: TODAY_YMD,   // 기본: 오늘
   start: null,       // 분
-  duration: null,    // 분
+  duration: 60,      // 기본: 1시간
   room: null,        // 선택 회의실 id
   roomFloor: null,   // 선택 회의실이 속한 층(FLOORS 항목)
   roomTab: FLOORS[0].label, // STEP2 층 카테고리 필터
@@ -552,7 +553,7 @@ async function confirmBooking() {
   S.booking = false;
 }
 function resetWizard() {
-  Object.assign(S, { date: null, start: null, duration: null, room: null, roomFloor: null, roomTab: FLOORS[0].label, meeting: '', attendees: [], body: '' });
+  Object.assign(S, { date: TODAY_YMD, viewY: today.getFullYear(), viewM: today.getMonth(), start: null, duration: 60, room: null, roomFloor: null, roomTab: FLOORS[0].label, meeting: '', attendees: [], body: '' });
   $('#confirmBtn').disabled = false; $('#confirmBtn').innerHTML = '<i class="ti ti-headphones"></i> 예약 확정';
   renderCalendar(); renderSlots(); renderDurChips(); updateHead();
   showStep(1);
