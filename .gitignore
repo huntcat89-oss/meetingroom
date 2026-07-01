@@ -1,0 +1,10 @@
+# 로컬 비밀/설정
+.env
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store

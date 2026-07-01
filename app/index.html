@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>회의실 예약</title>
+  <link rel="icon" href="https://flow.team/favicon.ico" />
+  <link rel="apple-touch-icon" href="https://flow.team/favicon.ico" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" />
+
+  <!-- 방문 분석(Google Analytics 4). GA4 측정 ID(G-XXXXXXXXXX)를 아래에 넣으면 접속자 수·예약 이벤트가 집계됩니다. 비워두면 아무것도 로드하지 않습니다. -->
+  <script>window.MR_GA_ID = "";</script>
+  <script>
+    (function () {
+      var id = window.MR_GA_ID;
+      if (!id) return;
+      var s = document.createElement('script');
+      s.async = true; s.src = 'https://www.googletagmanager.com/gtag/js?id=' + id;
+      document.head.appendChild(s);
+      window.dataLayer = window.dataLayer || [];
+      window.gtag = function () { dataLayer.push(arguments); };
+      gtag('js', new Date());
+      gtag('config', id);
+    })();
+  </script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="app">
+  <!-- 사이드바 -->
+  <aside class="sidebar">
+    <div class="side-brand">
+      <span class="side-logo"><i class="ti ti-building-community"></i></span>
+      <span class="side-name">Meeting<b>Room</b></span>
+    </div>
+    <nav class="side-nav">
+      <a class="nav-item active"><i class="ti ti-calendar-event"></i> 회의실 예약</a>
+    </nav>
+    <button class="side-settings" id="openSettings"><i class="ti ti-settings"></i> 연결 설정</button>
+    <div class="side-mode" id="modeBadge"></div>
+  </aside>
+
+  <!-- 본문 -->
+  <main class="content">
+    <header class="content-head">
+      <h1>회의실 예약</h1>
+      <p id="headSummary" class="head-summary"></p>
+    </header>
+
+    <!-- 진행 단계 -->
+    <ol class="steps" id="steps">
+      <li data-step="1"><span class="dot">1</span> 날짜·시간</li>
+      <li data-step="2"><span class="dot">2</span> 회의실</li>
+      <li data-step="3"><span class="dot">3</span> 상세 정보</li>
+      <li data-step="4"><span class="dot">4</span> 확인</li>
+    </ol>
+
+    <div class="card">
+      <!-- STEP 1 -->
+      <section class="step" data-step="1">
+        <h2>날짜와 시간을 선택하세요</h2>
+        <div class="step1-grid">
+          <div class="cal" id="calendar"></div>
+          <div class="timepick">
+            <div class="dur-label">소요 시간</div>
+            <div class="chips" id="durChips">
+              <button data-min="30">30분</button>
+              <button data-min="60">1시간</button>
+              <button data-min="90">1.5시간</button>
+              <button data-min="120">2시간</button>
+              <button data-min="150">2.5시간</button>
+              <button data-min="180">3시간</button>
+            </div>
+            <div class="slot-group">
+              <div class="slot-label">오전</div>
+              <div class="slots" id="slotsAM"></div>
+            </div>
+            <div class="slot-group">
+              <div class="slot-label">오후</div>
+              <div class="slots" id="slotsPM"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- STEP 2 -->
+      <section class="step" data-step="2" hidden>
+        <h2>회의실을 선택하세요</h2>
+        <p class="step-sub" id="step2Sub"></p>
+        <div class="rooms" id="rooms"></div>
+      </section>
+
+      <!-- STEP 3 -->
+      <section class="step" data-step="3" hidden>
+        <h2>상세 정보를 입력하세요</h2>
+        <p class="step-sub">* 표시는 필수 입력 항목입니다.</p>
+        <div class="form">
+          <label class="field">
+            <span>회의명 <b class="req">*</b></span>
+            <input id="fMeeting" placeholder="내부회의" autocomplete="off" />
+            <div class="tag-preview" id="titlePreview"></div>
+          </label>
+          <div class="field">
+            <span>참석자 <em>(구성원 검색)</em></span>
+            <div class="attendee-wrap">
+              <div class="attendee-box" id="attendeeBox">
+                <input id="fAttendee" placeholder="이름으로 구성원 검색" autocomplete="off" />
+              </div>
+              <div class="att-suggest" id="attSuggest" hidden></div>
+            </div>
+            <div class="attendee-count" id="attendeeCount">0명 선택됨</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- STEP 4 -->
+      <section class="step" data-step="4" hidden>
+        <h2>예약 내용을 확인하세요</h2>
+        <p class="step-sub">아래 내용이 맞으면 예약을 확정합니다.</p>
+        <div class="summary" id="summary"></div>
+        <div class="confirm-note" id="confirmNote"></div>
+      </section>
+
+      <!-- 하단 액션 -->
+      <div class="actions">
+        <button class="btn ghost" id="prevBtn" hidden>이전</button>
+        <div class="spacer"></div>
+        <button class="btn primary" id="nextBtn" disabled>다음</button>
+        <button class="btn primary" id="confirmBtn" hidden><i class="ti ti-headphones"></i> 예약 확정</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- 설정 모달 -->
+<div class="modal-backdrop" id="settingsModal" hidden>
+  <div class="modal">
+    <div class="modal-head"><h2>연결 설정</h2><button class="icon" id="closeSettings" aria-label="닫기"><i class="ti ti-x"></i></button></div>
+    <div class="modal-body">
+      <p class="settings-help"><b>개인용</b> 플로우 API 키를 넣으면 예약 생성·구성원 조회에 사용합니다. 키는 <b>이 브라우저(localStorage)에만</b> 저장되고 서버·저장소로 전송되지 않습니다 — 브라우저 저장소를 지우지 않는 한 유지됩니다. 비워두면 샘플 데모로 동작합니다.<br><span style="color:var(--muted)">발급: flow.team → 계정 → API 키 (개인용). 참고: <a href="https://api.flow.team/docs/api/user/calendars" target="_blank" style="color:var(--accent)">user/calendars</a> · <a href="https://api.flow.team/docs/api/user/employees" target="_blank" style="color:var(--accent)">user/employees</a></span></p>
+      <label class="field"><span>개인용 API 키</span><input id="sApiKey" type="password" placeholder="flow.team → 계정 → API 키" autocomplete="off" /></label>
+      <label class="field"><span>API 베이스 URL</span><input id="sApiBase" placeholder="https://api.flow.team/user" autocomplete="off" /></label>
+      <div class="settings-status" id="settingsStatus"></div>
+      <details class="room-reg-wrap">
+        <summary>회의실 목록 보기 <em>(고정)</em></summary>
+        <div class="room-reg" id="roomReg"></div>
+      </details>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" id="testConn">연결 테스트</button>
+      <div class="spacer"></div>
+      <button class="btn ghost" id="clearKey">키 삭제</button>
+      <button class="btn primary" id="saveSettings">저장</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
