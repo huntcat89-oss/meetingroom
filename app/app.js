@@ -185,18 +185,21 @@ async function createBooking(p) {
   const ymd = p.date;
   const names = p.attendees.map((a) => a.name);
   const withId = p.attendees.filter((a) => a.userId).map((a) => ({ userId: a.userId }));
+  // eventBody = 사용자가 입력한 내용(최대 10000자). attendances 첨부 실패 시 참석자 이름을 본문에 덧붙여 보존.
+  const memo = (p.body || '').slice(0, 10000);
+  const bodyFallback = [memo, names.length ? `참석자: ${names.join(', ')}` : ''].filter(Boolean).join('\n\n');
   const base = {
     calendarSrno: String(calendarSrno),
     eventName: `[${p.room}] ${p.meeting}`,
-    eventBody: names.length ? `참석자: ${names.join(', ')}` : '',
+    eventBody: memo,
     allDayYn: 'N', gmtTime: 'GMT+09:00', timezone: 'Asia/Seoul', publicYn: 'Y', publicNameYn: 'Y',
     eventStartTimestamp: ymd + m2hm(p.start) + '00',
     eventFinishTimestamp: ymd + m2hm(p.end) + '00',
   };
-  // 참석자를 정식 attendances 로 첨부 시도, 실패(400)하면 본문 기록만으로 재시도
+  // 참석자를 정식 attendances 로 첨부 시도, 실패(400)하면 참석자 이름을 본문에 넣어 재시도
   let r = await flowFetch('POST', '/calendars/events', withId.length ? { ...base, attendances: withId } : base);
   if (r && r.status === 400 && withId.length) {
-    r = await flowFetch('POST', '/calendars/events', base);
+    r = await flowFetch('POST', '/calendars/events', { ...base, eventBody: bodyFallback });
   }
   if (!r || r.status >= 400) throw new Error('예약 생성 실패 (' + (r ? r.status : 'network') + ')');
   return { ok: true };
@@ -236,7 +239,8 @@ const S = {
   duration: null,    // 분
   room: null,        // 선택 회의실 id
   roomFloor: null,   // 선택 회의실이 속한 층(FLOORS 항목)
-  meeting: '', attendees: [],
+  roomTab: FLOORS[0].label, // STEP2 층 카테고리 필터
+  meeting: '', attendees: [], body: '',
   booking: false,
 };
 function endMin() { return S.start != null && S.duration != null ? S.start + S.duration : null; }
@@ -321,6 +325,20 @@ function roomCard(r, floor) {
   return el;
 }
 
+function renderRoomTabs(perFloor, total) {
+  const box = $('#roomTabs');
+  box.innerHTML = '';
+  const tabs = [{ key: 'all', label: '전체', n: total }]
+    .concat(perFloor.map((f) => ({ key: f.floor.label, label: f.floor.label, n: f.availN })));
+  tabs.forEach((t) => {
+    const b = document.createElement('button');
+    b.className = S.roomTab === t.key ? 'on' : '';
+    b.innerHTML = `${esc(t.label)} <span style="opacity:.7;font-weight:500">${t.n}</span>`;
+    b.onclick = () => { if (S.roomTab !== t.key) { S.roomTab = t.key; loadStep2(); } };
+    box.appendChild(b);
+  });
+}
+
 async function loadStep2() {
   const box = $('#rooms');
   box.innerHTML = `<div style="color:var(--muted);font-size:13px;padding:20px 0">불러오는 중…</div>`;
@@ -332,28 +350,35 @@ async function loadStep2() {
     byFloor = sampleByFloor();
   }
   const st = S.start, en = endMin();
-  let total = 0;
-  box.innerHTML = '';
-  FLOORS.forEach((floor) => {
+  const perFloor = FLOORS.map((floor) => {
     const events = byFloor[floor.label] || [];
     const withStatus = floor.rooms.map((r) => {
       const conflicts = events.filter((e) => e.room === r.id && st < e.e && e.s < en).sort((a, b) => a.s - b.s);
       return { ...r, available: conflicts.length === 0, conflict: conflicts[0] || null };
     }).sort((a, b) => (a.available === b.available) ? 0 : a.available ? -1 : 1);
-    const availN = withStatus.filter((r) => r.available).length;
-    total += availN;
+    return { floor, withStatus, availN: withStatus.filter((r) => r.available).length };
+  });
+  const total = perFloor.reduce((s, f) => s + f.availN, 0);
+  if (!FLOORS.some((f) => f.label === S.roomTab) && S.roomTab !== 'all') S.roomTab = FLOORS[0].label;
+  renderRoomTabs(perFloor, total);
 
+  const shown = S.roomTab === 'all' ? perFloor : perFloor.filter((f) => f.floor.label === S.roomTab);
+  const showHead = shown.length > 1;
+  box.innerHTML = '';
+  shown.forEach(({ floor, withStatus, availN }) => {
     const group = document.createElement('div');
     group.className = 'room-group';
-    group.innerHTML = `<div class="room-group-head"><span class="badge-floor">${esc(floor.label)}</span>` +
-      `<span class="cnt">예약 가능 ${availN} / ${floor.rooms.length}곳</span></div>`;
+    if (showHead) {
+      group.innerHTML = `<div class="room-group-head"><span class="badge-floor">${esc(floor.label)}</span>` +
+        `<span class="cnt">예약 가능 ${availN} / ${floor.rooms.length}곳</span></div>`;
+    }
     const list = document.createElement('div');
     list.className = 'rooms';
     withStatus.forEach((r) => list.appendChild(roomCard(r, floor)));
     group.appendChild(list);
     box.appendChild(group);
   });
-  $('#step2Sub').innerHTML = `${labelDate(S.date)} · <b>${m2label(st)} ~ ${m2label(en)}</b> · 전체 예약 가능 <b style="color:var(--accent)">${total}</b>곳`;
+  $('#step2Sub').innerHTML = `${labelDate(S.date)} · <b>${m2label(st)} ~ ${m2label(en)}</b>`;
   $('#nextBtn').disabled = !(S.room && S.roomFloor);
 }
 
@@ -362,7 +387,7 @@ async function loadStep2() {
  * ============================================================ */
 let _attHi = -1; // 자동완성 하이라이트 인덱스
 function bindStep3() {
-  const meet = $('#fMeeting'), att = $('#fAttendee');
+  const meet = $('#fMeeting'), att = $('#fAttendee'), body = $('#fBody');
   meet.value = S.meeting;
   const preview = () => {
     $('#titlePreview').innerHTML = meet.value.trim()
@@ -370,6 +395,11 @@ function bindStep3() {
     syncStep3();
   };
   meet.oninput = () => { S.meeting = meet.value; preview(); };
+
+  body.value = S.body;
+  const bodyCount = () => { $('#bodyCount').textContent = `${body.value.length.toLocaleString()} / 10,000`; };
+  body.oninput = () => { S.body = body.value; bodyCount(); };
+  bodyCount();
 
   loadEmployees(); // 미리 불러오기
   att.oninput = () => renderSuggest(att.value.trim());
@@ -449,7 +479,13 @@ function renderSummary() {
     ['회의실', `${esc(S.room)}${S.roomFloor ? ` <span style="color:var(--muted)">· ${esc(S.roomFloor.label)} ${esc(S.roomFloor.rooms.find((r) => r.id === S.room)?.loc || '')}</span>` : ''}`],
     ['참석자', S.attendees.length ? esc(S.attendees.map((a) => a.name).join(', ')) : '-'],
   ];
-  $('#summary').innerHTML = rows.map(([k, v]) => `<div class="row"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+  const rowsHtml = rows.map(([k, v]) => `<div class="row"><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+  const bodyRow = `<div class="row"><div class="k">내용</div><div class="v" style="width:100%">` +
+    `<textarea id="fBody2" class="summary-body" rows="3" maxlength="10000" placeholder="회의 안건, 참고사항 등 (선택)">${esc(S.body)}</textarea>` +
+    `<div class="body-count" id="bodyCount2">${S.body.length.toLocaleString()} / 10,000</div></div></div>`;
+  $('#summary').innerHTML = rowsHtml + bodyRow;
+  const b2 = $('#fBody2');
+  b2.oninput = () => { S.body = b2.value; $('#bodyCount2').textContent = `${b2.value.length.toLocaleString()} / 10,000`; };
   $('#confirmNote').innerHTML = mode() === 'direct'
     ? '<i class="ti ti-cloud-check"></i> 예약을 확정하면 플로우 회의실 캘린더에 일정이 생성됩니다.'
     : '';
@@ -509,7 +545,7 @@ async function confirmBooking() {
   try {
     await createBooking({
       date: S.date, start: S.start, end: endMin(), room: S.room, floor: S.roomFloor,
-      meeting: S.meeting.trim(), attendees: S.attendees,
+      meeting: S.meeting.trim(), attendees: S.attendees, body: S.body.trim(),
     });
     track('booking_confirmed', { floor: S.roomFloor ? S.roomFloor.label : '', room: S.room, live: mode() === 'direct' ? 1 : 0 });
     toast(`✓ [${S.room}] ${S.meeting.trim()} 예약 완료`, 'ok');
@@ -521,7 +557,7 @@ async function confirmBooking() {
   S.booking = false;
 }
 function resetWizard() {
-  Object.assign(S, { date: null, start: null, duration: null, room: null, roomFloor: null, meeting: '', attendees: [] });
+  Object.assign(S, { date: null, start: null, duration: null, room: null, roomFloor: null, roomTab: FLOORS[0].label, meeting: '', attendees: [], body: '' });
   $('#confirmBtn').disabled = false; $('#confirmBtn').innerHTML = '<i class="ti ti-headphones"></i> 예약 확정';
   renderCalendar(); renderSlots(); renderDurChips(); updateHead();
   showStep(1);
