@@ -586,7 +586,7 @@ async function testConn() {
   st.className = 'settings-status'; st.textContent = '연결 확인 중…';
   const prevKey = LS.key, prevBase = LS.base; LS.key = key; LS.base = $('#sApiBase').value.trim() || 'https://api.flow.team';
   try {
-    const r = await flowFetch('GET', '/calendars');
+    const r = await flowFetch('GET', '/employees?pageSize=1');
     if (r && r.status < 400) { st.className = 'settings-status ok'; st.textContent = '✓ 연결 성공'; }
     else if (r && r.status === 401) { st.className = 'settings-status bad'; st.textContent = `인증 실패 — ${apiErr(r)} 개인 API 키(발급 위치·만료 여부)를 확인하세요.`; }
     else { st.className = 'settings-status bad'; st.textContent = `연결 실패 (HTTP ${r ? r.status : '?'}) — ${apiErr(r)}`; }
