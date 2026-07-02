@@ -66,10 +66,12 @@ python3 server.py         # http://localhost:5173  (app/ 를 서빙)
 
 | 경로 | 역할 |
 |------|------|
-| `app/index.html` · `app/styles.css` · `app/app.js` | 정적 위저드 앱 (GitHub Pages) |
+| `app/index.html` | **단일 파일** 위저드 앱 (CSS·JS 인라인). 더블클릭으로 로컬 실행 가능, GitHub Pages 배포도 이 파일 하나 |
 | `app/.nojekyll` | Pages 가 자산을 그대로 서빙하도록 |
 | `server.py` | 선택적 로컬 서버 + 플로우 API 프록시 |
 | `.env.example` | 로컬 서버용 환경변수 예시 |
+
+> `app/index.html` 은 CSS·JS 가 모두 인라인된 단일 파일이라, 파일을 더블클릭해 브라우저로 바로 열 수 있습니다. (아이콘·구성원/예약 조회는 인터넷 연결 시 동작. 키 없으면 샘플 데모)
 
 ## 예약 규칙
 
