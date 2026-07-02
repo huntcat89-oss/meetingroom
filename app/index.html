@@ -133,6 +133,7 @@ h1, h2 { letter-spacing: -0.4px; }
 .chips button:hover { border-color: var(--accent); color: var(--accent); }
 .chips button.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 .slot-group { margin-bottom: 14px; }
+.timepick.allday .slot-group { opacity: .4; }
 .slots { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
 .slots button { font-family: inherit; font-size: 12.5px; padding: 9px 0; border-radius: 8px;
   border: 1px solid var(--line-strong); background: #fff; color: var(--text); cursor: pointer; }
@@ -377,6 +378,7 @@ h1, h2 { letter-spacing: -0.4px; }
               <button data-min="120">2시간</button>
               <button data-min="150">2.5시간</button>
               <button data-min="180">3시간</button>
+              <button data-min="allday">종일</button>
             </div>
           </div>
         </div>
@@ -682,9 +684,9 @@ async function createBooking(p) {
     .filter(Boolean).join('\n\n').slice(0, 4000);
   const body = {
     title: `[${p.room}] ${p.meeting}`,
-    startDateTime: ymd + m2hm(p.start) + '00',
-    endDateTime: ymd + m2hm(p.end) + '00',
-    isAllDay: false,
+    startDateTime: p.allday ? ymd + '000000' : ymd + m2hm(p.start) + '00',
+    endDateTime: p.allday ? ymd + '235900' : ymd + m2hm(p.end) + '00',
+    isAllDay: !!p.allday,
     viewPermission: 'all',
   };
   if (memo) body.memo = memo;
@@ -732,6 +734,7 @@ const S = {
   date: TODAY_YMD,   // 기본: 오늘
   start: null,       // 분
   duration: 60,      // 기본: 1시간
+  allday: false,     // 종일 예약 여부
   room: null,        // 선택 회의실 id
   roomFloor: null,   // 선택 회의실이 속한 층(FLOORS 항목)
   roomTab: FLOORS[0].label, // STEP2 층 카테고리 필터
@@ -739,6 +742,9 @@ const S = {
   booking: false,
 };
 function endMin() { return S.start != null && S.duration != null ? S.start + S.duration : null; }
+// STEP2 가용성 계산용 시간창(분). 종일이면 하루 전체.
+function winStart() { return S.allday ? 0 : S.start; }
+function winEnd() { return S.allday ? 24 * 60 : endMin(); }
 
 /* ============================================================
  * STEP 1 — 캘린더 + 시간
@@ -783,19 +789,27 @@ function renderSlots() {
   for (let m = 8 * 60; m <= 21 * 60 + 30; m += 30) {
     const b = document.createElement('button');
     b.textContent = slotLabel(m);
-    b.className = S.start === m ? 'on' : '';
-    b.onclick = () => { S.start = m; renderSlots(); syncStep1(); updateHead(); };
+    b.className = (!S.allday && S.start === m) ? 'on' : '';
+    b.onclick = () => { S.start = m; S.allday = false; renderSlots(); renderDurChips(); syncStep1(); updateHead(); };
     (m < 12 * 60 ? am : pm).appendChild(b);
   }
+  // 종일이면 시작 시간 섹션을 흐리게(선택 불필요 표시)
+  const tp = document.querySelector('.timepick');
+  if (tp) tp.classList.toggle('allday', S.allday);
 }
 function renderDurChips() {
   $$('#durChips button').forEach((b) => {
-    b.classList.toggle('on', S.duration === +b.dataset.min);
-    b.onclick = () => { S.duration = +b.dataset.min; renderDurChips(); syncStep1(); updateHead(); };
+    const isAll = b.dataset.min === 'allday';
+    b.classList.toggle('on', isAll ? S.allday : (!S.allday && S.duration === +b.dataset.min));
+    b.onclick = () => {
+      if (isAll) { S.allday = true; }
+      else { S.allday = false; S.duration = +b.dataset.min; }
+      renderDurChips(); renderSlots(); syncStep1(); updateHead();
+    };
   });
 }
 function syncStep1() {
-  const ok = S.date && S.start != null && S.duration != null;
+  const ok = S.date && (S.allday || (S.start != null && S.duration != null));
   $('#nextBtn').disabled = !ok;
 }
 // 오늘이면 현재 시각을 다음 30분 슬롯으로 올려 기본 시작시간으로. (예: 1:59→2:00)
@@ -855,7 +869,7 @@ let _sched = { date: null, byFloor: null };
 function renderStep2() {
   const byFloor = _sched.byFloor;
   const ready = !!byFloor;
-  const st = S.start, en = endMin();
+  const st = winStart(), en = winEnd();
   const perFloor = FLOORS.map((floor) => {
     const events = (byFloor && byFloor[floor.label]) || [];
     const withStatus = floor.rooms.map((r) => {
@@ -887,7 +901,7 @@ function renderStep2() {
     group.appendChild(list);
     box.appendChild(group);
   });
-  $('#step2Sub').innerHTML = `${labelDate(S.date)} · <b>${m2label(st)} ~ ${m2label(en)}</b>` +
+  $('#step2Sub').innerHTML = `${labelDate(S.date)} · <b>${S.allday ? '종일' : `${m2label(st)} ~ ${m2label(en)}`}</b>` +
     (ready ? '' : ' · <span style="color:var(--muted)">예약 확인 중…</span>');
   $('#nextBtn').disabled = !(S.room && S.roomFloor);
 }
@@ -1002,7 +1016,7 @@ function renderSummary() {
   const rows = [
     ['회의명', `<span class="tag">[${esc(S.room)}]</span> ${esc(S.meeting)}`],
     ['날짜', labelDate(S.date)],
-    ['시간', `${m2label(S.start)} ~ ${m2label(endMin())}`],
+    ['시간', S.allday ? '종일' : `${m2label(S.start)} ~ ${m2label(endMin())}`],
     ['회의실', `${esc(S.room)}${S.roomFloor ? ` <span style="color:var(--muted)">· ${esc(S.roomFloor.label)} ${esc(S.roomFloor.rooms.find((r) => r.id === S.room)?.loc || '')}</span>` : ''}`],
     ['참석자', S.attendees.length ? esc(S.attendees.map((a) => a.name).join(', ')) : '-'],
   ];
@@ -1035,7 +1049,8 @@ function labelDate(ymd) {
 function updateHead() {
   const parts = [];
   if (S.date) parts.push(labelDate(S.date));
-  if (S.start != null) parts.push(m2label(S.start) + (S.duration ? ` · ${S.duration >= 60 ? (S.duration / 60) + '시간' : S.duration + '분'}` : ''));
+  if (S.allday) parts.push('종일');
+  else if (S.start != null) parts.push(m2label(S.start) + (S.duration ? ` · ${S.duration >= 60 ? (S.duration / 60) + '시간' : S.duration + '분'}` : ''));
   if (S.room) parts.push(`[${S.room}]` + (S.roomFloor ? ` ${S.roomFloor.label}` : ''));
   $('#headSummary').textContent = parts.join('   ·   ');
 }
@@ -1071,7 +1086,7 @@ async function confirmBooking() {
   btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2 spin"></i> 예약 중…';
   try {
     await createBooking({
-      date: S.date, start: S.start, end: endMin(), room: S.room, floor: S.roomFloor,
+      date: S.date, start: S.start, end: endMin(), allday: S.allday, room: S.room, floor: S.roomFloor,
       meeting: S.meeting.trim(), attendees: S.attendees, body: S.body.trim(),
     });
     track('booking_confirmed', { floor: S.roomFloor ? S.roomFloor.label : '', room: S.room, live: mode() === 'direct' ? 1 : 0 });
@@ -1085,7 +1100,7 @@ async function confirmBooking() {
 }
 function resetWizard() {
   _sched = { date: null, byFloor: null }; // 방금 만든 예약이 반영되도록 캐시 무효화
-  Object.assign(S, { date: TODAY_YMD, viewY: today.getFullYear(), viewM: today.getMonth(), start: defaultStart(), duration: 60, room: null, roomFloor: null, roomTab: FLOORS[0].label, meeting: '', attendees: [], body: '' });
+  Object.assign(S, { date: TODAY_YMD, viewY: today.getFullYear(), viewM: today.getMonth(), start: defaultStart(), duration: 60, allday: false, room: null, roomFloor: null, roomTab: FLOORS[0].label, meeting: '', attendees: [], body: '' });
   $('#confirmBtn').disabled = false; $('#confirmBtn').innerHTML = '<i class="ti ti-headphones"></i> 예약 확정';
   renderCalendar(); renderSlots(); renderDurChips(); updateHead();
   showStep(1);
