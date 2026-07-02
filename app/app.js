@@ -23,9 +23,9 @@ const FLOORS = [
     rooms: [
       { id: '서울', loc: '대회의실' },
       { id: '런던', loc: 'SaaS 사업부 옆' },
-      { id: '도쿄', loc: '부대표실 옆' },
-      { id: '샌프란', loc: '입구(우)' },
-      { id: '멕시코시티', loc: '입구(좌)' },
+      { id: '도쿄', loc: '부대표실 옆', aliases: ['동경'] },
+      { id: '샌프란', loc: '입구(우)', aliases: ['센프란', '샌프란시스코', '샌프'] },
+      { id: '멕시코시티', loc: '입구(좌)', aliases: ['멕시코', '맥시코', '맥시코시티'] },
       { id: '독도', loc: '화상회의실' },
       { id: '울릉도', loc: '화상회의실' },
       { id: '스튜디오', loc: '진실의방' },
@@ -372,7 +372,8 @@ function renderStep2() {
     const events = (byFloor && byFloor[floor.label]) || [];
     const withStatus = floor.rooms.map((r) => {
       if (!ready) return { ...r, available: true, conflict: null };
-      const conflicts = events.filter((e) => roomMatch(e.room, r.id) && st < e.e && e.s < en).sort((a, b) => a.s - b.s);
+      const cands = [r.id].concat(r.aliases || []);
+      const conflicts = events.filter((e) => cands.some((c) => roomMatch(e.room, c)) && st < e.e && e.s < en).sort((a, b) => a.s - b.s);
       return { ...r, available: conflicts.length === 0, conflict: conflicts[0] || null };
     });
     if (ready) withStatus.sort((a, b) => (a.available === b.available) ? 0 : a.available ? -1 : 1);
@@ -669,5 +670,6 @@ function init() {
   $('#saveSettings').onclick = saveSettings;
   $('#clearKey').onclick = () => { $('#sApiKey').value = ''; };
   showStep(1);
+  if (!LS.key) openSettings(); // 키가 저장돼 있지 않으면 최초에 연결 설정을 띄운다
 }
 init();

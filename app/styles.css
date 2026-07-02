@@ -231,6 +231,9 @@ h1, h2 { letter-spacing: -0.4px; }
 .modal-head h2 { margin: 0; font-size: 16px; }
 .modal-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 15px; }
 .settings-help { font-size: 12.5px; color: var(--text-2); line-height: 1.6; margin: 0; }
+.key-link { display: inline-flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--accent); text-decoration: none; margin-top: 2px; }
+.key-link:hover { text-decoration: underline; }
+.key-link .ti { font-size: 14px; }
 .settings-status { font-size: 12.5px; min-height: 16px; }
 .settings-status.ok { color: var(--ok); } .settings-status.bad { color: var(--danger); }
 .modal-actions { display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-top: 1px solid var(--line); }
