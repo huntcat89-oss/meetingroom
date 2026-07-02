@@ -6,8 +6,10 @@
 const LS = {
   get key() { return localStorage.getItem('mr_apiKey') || ''; },
   set key(v) { v ? localStorage.setItem('mr_apiKey', v) : localStorage.removeItem('mr_apiKey'); },
-  get base() { return localStorage.getItem('mr_apiBase') || 'https://api.flow.team'; },
-  set base(v) { localStorage.setItem('mr_apiBase', v || 'https://api.flow.team'); },
+  get base() { return localStorage.getItem('mr_apiBase') || 'https://api.flow.team/v1'; },
+  set base(v) { localStorage.setItem('mr_apiBase', v || 'https://api.flow.team/v1'); },
+  get botProp() { return localStorage.getItem('mr_botProp') || ''; },
+  set botProp(v) { v ? localStorage.setItem('mr_botProp', v) : localStorage.removeItem('mr_botProp'); },
   get cal() { return localStorage.getItem('mr_calendarSrno') || ''; },
   set cal(v) { v ? localStorage.setItem('mr_calendarSrno', v) : localStorage.removeItem('mr_calendarSrno'); },
 };
@@ -67,16 +69,17 @@ function sampleByFloor() {
 /* ============================================================
  * 플로우 REST 직접 호출 (브라우저)
  * ============================================================ */
-// 베이스에서 끝의 /user·슬래시를 떼고, 항상 /user 를 붙여 최종 경로를 만든다
-// (저장된 값이 https://api.flow.team 이든 .../user 이든 중복 없이 동작).
+// 베이스에서 끝의 /user·/v1·슬래시를 떼고 항상 /v1 을 붙인다
+// (저장된 값이 어떤 형태든 https://api.flow.team/v1 로 정규화).
 function apiUrl(path) {
-  const host = LS.base.replace(/\/+$/, '').replace(/\/user$/, '');
-  return host + '/user' + path;
+  const host = LS.base.replace(/\/+$/, '').replace(/\/(user|v1)$/, '');
+  return host + '/v1' + path;
 }
 
-// 플로우 /user API 는 Authorization: Bearer <토큰> 만 받는다.
+// 플로우 /v1 API 는 x-flow-api-key 헤더로 인증(알림·글작성과 동일 방식).
 async function flowFetch(method, path, body) {
-  const headers = { Accept: 'application/json', Authorization: 'Bearer ' + LS.key };
+  const headers = { Accept: 'application/json', 'x-flow-api-key': LS.key };
+  if (LS.botProp) headers['x-flow-bot-property'] = LS.botProp;
   if (body) headers['Content-Type'] = 'application/json';
   const res = await fetch(apiUrl(path), { method, headers, body: body ? JSON.stringify(body) : undefined });
   let json = null; try { json = await res.json(); } catch (_) {}
@@ -563,7 +566,7 @@ function resetWizard() {
  * 설정 모달
  * ============================================================ */
 function openSettings() {
-  $('#sApiKey').value = LS.key; $('#sApiBase').value = LS.base;
+  $('#sApiKey').value = LS.key; $('#sApiBase').value = LS.base; $('#sBotProp').value = LS.botProp;
   $('#settingsStatus').textContent = ''; $('#settingsStatus').className = 'settings-status';
   renderRoomReg();
   $('#settingsModal').hidden = false;
@@ -584,21 +587,23 @@ async function testConn() {
   const key = $('#sApiKey').value.trim();
   if (!key) { st.className = 'settings-status'; st.textContent = '키가 없으면 샘플 데모로 동작합니다.'; return; }
   st.className = 'settings-status'; st.textContent = '연결 확인 중…';
-  const prevKey = LS.key, prevBase = LS.base; LS.key = key; LS.base = $('#sApiBase').value.trim() || 'https://api.flow.team';
+  const prevKey = LS.key, prevBase = LS.base, prevProp = LS.botProp;
+  LS.key = key; LS.base = $('#sApiBase').value.trim() || 'https://api.flow.team/v1'; LS.botProp = $('#sBotProp').value.trim();
   try {
     const r = await flowFetch('GET', '/employees?pageSize=1');
     if (r && r.status < 400) { st.className = 'settings-status ok'; st.textContent = '✓ 연결 성공'; }
-    else if (r && r.status === 401) { st.className = 'settings-status bad'; st.textContent = `인증 실패 — ${apiErr(r)} 개인 API 키(발급 위치·만료 여부)를 확인하세요.`; }
+    else if (r && r.status === 401) { st.className = 'settings-status bad'; st.textContent = `인증 실패 — ${apiErr(r)} 키·봇 프로퍼티를 확인하세요.`; }
     else { st.className = 'settings-status bad'; st.textContent = `연결 실패 (HTTP ${r ? r.status : '?'}) — ${apiErr(r)}`; }
   } catch (e) {
     st.className = 'settings-status bad';
     st.textContent = '요청 차단됨 — 브라우저 CORS 정책일 수 있습니다. 로컬 server.py 프록시 사용을 권장합니다.';
   }
-  LS.key = prevKey; LS.base = prevBase;
+  LS.key = prevKey; LS.base = prevBase; LS.botProp = prevProp;
 }
 function saveSettings() {
   LS.key = $('#sApiKey').value.trim();
   LS.base = $('#sApiBase').value.trim();
+  LS.botProp = $('#sBotProp').value.trim();
   _employees = null; _employeesLoading = null; // 키 바뀌면 구성원 캐시 무효화
   $('#settingsModal').hidden = true;
   updateModeBadge();

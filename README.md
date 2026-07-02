@@ -42,12 +42,13 @@ const FLOORS = [
 우측 하단 **연결 설정**에서 정합니다.
 
 - **샘플 데모 (기본)** — 키 없이 바로 동작. UI·자동추천·중복검사 흐름을 그대로 체험. 실제 예약은 생성되지 않음.
-- **플로우 실데이터** — **개인용** 플로우 API 키를 입력하면 브라우저가 플로우 `user` API 를 직접 호출합니다. **키는 이 브라우저(localStorage)에만 저장**되고 서버·저장소로 전송되지 않습니다(브라우저 저장소를 지우지 않는 한 유지).
-  - 베이스 URL 기본값: `https://api.flow.team` (경로에 `/user` 는 앱이 자동으로 붙임)
-  - 사용하는 API: 일정 조회·생성 [`/user/calendars/events`](https://api.flow.team/docs/api/user/calendars), 참석자 검색용 구성원 [`/user/employees`](https://api.flow.team/docs/api/user/employees)
-  - 예약 생성 캘린더는 층 프로젝트(`colaboSrno`)로 `/calendars` 에서 자동 역매핑합니다.
+- **플로우 실데이터** — 플로우 API 키(`x-flow-api-key`)를 입력하면 브라우저가 플로우 `/v1` API 를 직접 호출합니다(알림·글작성에 쓰는 그 키와 동일 방식). **키는 이 브라우저(localStorage)에만 저장**되고 서버·저장소로 전송되지 않습니다.
+  - 베이스 URL 기본값: `https://api.flow.team/v1`
+  - 인증 헤더: `x-flow-api-key: <키>` (봇 키면 `x-flow-bot-property` 도 설정에서 입력)
+  - 사용하는 API: 일정 조회·생성 `GET|POST /v1/calendars/events`, 구성원 `GET /v1/employees`, 캘린더 목록 `GET /v1/calendars`
+  - 예약 생성 캘린더는 층 프로젝트(`colaboSrno`)로 `/v1/calendars` 에서 자동 역매핑합니다.
 
-> ⚠️ **CORS 주의**: 브라우저에서 `api.flow.team` 직접 호출은 플로우 서버가 CORS 를 허용해야 동작합니다. 설정의 **연결 테스트**로 확인하세요. 차단되면 아래 로컬 서버(프록시)를 쓰세요.
+> `/v1` API 는 브라우저 교차출처 요청을 허용합니다(`access-control-allow-origin: *`, `x-flow-api-key` 헤더 허용). 설정의 **연결 테스트**로 확인하세요.
 
 ## 로컬 서버 (선택 · CORS 우회, 실예약)
 
