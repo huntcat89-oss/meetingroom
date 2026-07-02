@@ -8,8 +8,6 @@ const LS = {
   set key(v) { v ? localStorage.setItem('mr_apiKey', v) : localStorage.removeItem('mr_apiKey'); },
   get base() { return localStorage.getItem('mr_apiBase') || 'https://api.flow.team/user'; },
   set base(v) { localStorage.setItem('mr_apiBase', v || 'https://api.flow.team/user'); },
-  get botProp() { return localStorage.getItem('mr_botProp') || ''; },
-  set botProp(v) { v ? localStorage.setItem('mr_botProp', v) : localStorage.removeItem('mr_botProp'); },
   get cal() { return localStorage.getItem('mr_calendarSrno') || ''; },
   set cal(v) { v ? localStorage.setItem('mr_calendarSrno', v) : localStorage.removeItem('mr_calendarSrno'); },
 };
@@ -79,7 +77,6 @@ function apiUrl(path) {
 // 플로우 API 는 x-flow-api-key 헤더로 인증(알림·글작성과 동일 방식). /user 도 이 헤더를 받음.
 async function flowFetch(method, path, body) {
   const headers = { Accept: 'application/json', 'x-flow-api-key': LS.key };
-  if (LS.botProp) headers['x-flow-bot-property'] = LS.botProp;
   if (body) headers['Content-Type'] = 'application/json';
   const res = await fetch(apiUrl(path), { method, headers, body: body ? JSON.stringify(body) : undefined });
   let json = null; try { json = await res.json(); } catch (_) {}
@@ -138,7 +135,7 @@ async function loadEmployees() {
     const out = [];
     let cursor = null;
     for (let i = 0; i < 6; i++) {
-      const q = '/employees?pageSize=100' + (cursor ? `&cursor=${cursor}` : '');
+      const q = '/employees' + (cursor ? `?cursor=${cursor}` : '');
       const r = await flowFetch('GET', q);
       if (!r || r.status >= 400 || !r.json) break;
       const list = r.json.employees || r.json.list || [];
@@ -566,7 +563,7 @@ function resetWizard() {
  * 설정 모달
  * ============================================================ */
 function openSettings() {
-  $('#sApiKey').value = LS.key; $('#sApiBase').value = LS.base; $('#sBotProp').value = LS.botProp;
+  $('#sApiKey').value = LS.key; $('#sApiBase').value = LS.base;
   $('#settingsStatus').textContent = ''; $('#settingsStatus').className = 'settings-status';
   renderRoomReg();
   $('#settingsModal').hidden = false;
@@ -587,23 +584,22 @@ async function testConn() {
   const key = $('#sApiKey').value.trim();
   if (!key) { st.className = 'settings-status'; st.textContent = '키가 없으면 샘플 데모로 동작합니다.'; return; }
   st.className = 'settings-status'; st.textContent = '연결 확인 중…';
-  const prevKey = LS.key, prevBase = LS.base, prevProp = LS.botProp;
-  LS.key = key; LS.base = $('#sApiBase').value.trim() || 'https://api.flow.team/user'; LS.botProp = $('#sBotProp').value.trim();
+  const prevKey = LS.key, prevBase = LS.base;
+  LS.key = key; LS.base = $('#sApiBase').value.trim() || 'https://api.flow.team/user';
   try {
-    const r = await flowFetch('GET', '/employees?pageSize=1');
+    const r = await flowFetch('GET', '/employees');
     if (r && r.status < 400) { st.className = 'settings-status ok'; st.textContent = '✓ 연결 성공'; }
-    else if (r && r.status === 401) { st.className = 'settings-status bad'; st.textContent = `인증 실패 — ${apiErr(r)} 키·봇 프로퍼티를 확인하세요.`; }
+    else if (r && r.status === 401) { st.className = 'settings-status bad'; st.textContent = `인증 실패 — ${apiErr(r)} API 키를 확인하세요.`; }
     else { st.className = 'settings-status bad'; st.textContent = `연결 실패 (HTTP ${r ? r.status : '?'}) — ${apiErr(r)}`; }
   } catch (e) {
     st.className = 'settings-status bad';
     st.textContent = '요청 차단됨 — 브라우저 CORS 정책일 수 있습니다. 로컬 server.py 프록시 사용을 권장합니다.';
   }
-  LS.key = prevKey; LS.base = prevBase; LS.botProp = prevProp;
+  LS.key = prevKey; LS.base = prevBase;
 }
 function saveSettings() {
   LS.key = $('#sApiKey').value.trim();
   LS.base = $('#sApiBase').value.trim();
-  LS.botProp = $('#sBotProp').value.trim();
   _employees = null; _employeesLoading = null; // 키 바뀌면 구성원 캐시 무효화
   $('#settingsModal').hidden = true;
   updateModeBadge();
