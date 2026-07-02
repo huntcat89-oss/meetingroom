@@ -115,7 +115,7 @@ h1, h2 { letter-spacing: -0.4px; }
 .cal-dow.sun { color: var(--sun); } .cal-dow.sat { color: var(--sat); }
 .cal-cell { aspect-ratio: 1.1; display: grid; place-items: center; font-size: 13.5px; cursor: pointer; color: var(--text);
   border-right: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); }
-.cal-cell:hover:not(.empty):not(.past) { background: var(--panel-2); }
+.cal-cell:hover:not(.empty):not(.past):not(.sel):not(.in-range) { background: var(--panel-2); }
 .cal-cell.empty { cursor: default; background: var(--panel-2); }
 .cal-cell.past { color: var(--muted); cursor: default; opacity: .5; }
 .cal-cell.sun { color: var(--sun); } .cal-cell.sat { color: var(--sat); }
@@ -125,6 +125,11 @@ h1, h2 { letter-spacing: -0.4px; }
   width: 4px; height: 4px; border-radius: 50%; background: var(--accent); }
 .cal-cell.today-mark.sel { color: #fff; }
 .cal-cell.today-mark.sel::after { background: #fff; }
+.cal-cell.sel:hover { background: var(--accent-dark); }
+.cal-cell.in-range { background: var(--accent-bg); color: var(--accent-dark); font-weight: 600; }
+.cal-cell.in-range.today-mark { color: var(--accent-dark); }
+.cal-hint { margin-top: 10px; font-size: 12px; color: var(--accent-dark); background: var(--accent-bg);
+  border-radius: 8px; padding: 8px 10px; line-height: 1.4; }
 
 .dur-label, .slot-label { font-size: 12px; color: var(--text-2); font-weight: 600; margin-bottom: 8px; }
 .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 18px; }
@@ -633,6 +638,16 @@ async function listEventsByFloor(ymd) {
   await Promise.all(FLOORS.map(async (f) => { out[f.label] = await listSchedules(f.project, ymd); }));
   return out;
 }
+// 여러 날(종일 여러 날 예약)의 예약을 층별로 합쳐 반환. 어느 하루라도 잡혀 있으면 그 방은 사용 중.
+async function listEventsByFloorRange(ymds) {
+  if (mode() === 'sample') return sampleByFloor();
+  const out = {}; FLOORS.forEach((f) => { out[f.label] = []; });
+  await Promise.all(FLOORS.flatMap((f) => ymds.map(async (ymd) => {
+    const evs = await listSchedules(f.project, ymd);
+    out[f.label].push(...evs);
+  })));
+  return out;
+}
 
 /* ============================================================
  * 구성원(임직원) 조회 — 참석자 자동완성용
@@ -682,10 +697,14 @@ async function createBooking(p) {
   const attendance = p.attendees.filter((a) => a.userId).map((a) => ({ attendanceId: a.userId }));
   const memo = [(p.body || '').trim(), names.length ? `참석자: ${names.join(', ')}` : '']
     .filter(Boolean).join('\n\n').slice(0, 4000);
+  // 종일 여러 날: 종료는 마지막 날 '다음 날 자정'(exclusive) — 목록 조회 판정 [sYmd, eYmd) 와 일치.
+  const multiDay = p.allday && p.endDate && p.endDate > ymd;
   const body = {
     title: `[${p.room}] ${p.meeting}`,
     startDateTime: p.allday ? ymd + '000000' : ymd + m2hm(p.start) + '00',
-    endDateTime: p.allday ? ymd + '235900' : ymd + m2hm(p.end) + '00',
+    endDateTime: p.allday
+      ? (multiDay ? nextYmd(p.endDate) + '000000' : ymd + '235900')
+      : ymd + m2hm(p.end) + '00',
     isAllDay: !!p.allday,
     viewPermission: 'all',
   };
@@ -709,6 +728,16 @@ const $$ = (s) => document.querySelectorAll(s);
 const pad = (n) => String(n).padStart(2, '0');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function hm2m(hhmmss) { return +hhmmss.slice(0, 2) * 60 + +hhmmss.slice(2, 4); }
+function ymdToDate(ymd) { return new Date(+ymd.slice(0, 4), +ymd.slice(4, 6) - 1, +ymd.slice(6, 8)); }
+function dateToYmd(d) { return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`; }
+function nextYmd(ymd) { const d = ymdToDate(ymd); d.setDate(d.getDate() + 1); return dateToYmd(d); }
+// 종일 예약이 걸치는 날짜(YYYYMMDD) 목록. 여러 날이면 시작~종료 전부, 아니면 시작일 하나.
+function rangeYmds() {
+  const end = (S.allday && S.endDate && S.endDate > S.date) ? S.endDate : S.date;
+  const out = []; let d = ymdToDate(S.date); const endD = ymdToDate(end);
+  while (d <= endD) { out.push(dateToYmd(d)); d.setDate(d.getDate() + 1); }
+  return out;
+}
 function m2hm(m) { return pad(Math.floor(m / 60)) + pad(m % 60); }
 function m2label(m) {
   const h = Math.floor(m / 60), mm = m % 60;
@@ -731,7 +760,8 @@ const TODAY_YMD = `${today.getFullYear()}${pad(today.getMonth() + 1)}${pad(today
 const S = {
   step: 1,
   viewY: today.getFullYear(), viewM: today.getMonth(), // 캘린더 표시 월
-  date: TODAY_YMD,   // 기본: 오늘
+  date: TODAY_YMD,   // 기본: 오늘 (종일 여러 날이면 시작일)
+  endDate: null,     // 종일 여러 날 예약의 종료일(없으면 하루)
   start: null,       // 분
   duration: 60,      // 기본: 1시간
   allday: false,     // 종일 예약 여부
@@ -741,6 +771,8 @@ const S = {
   meeting: '', attendees: [], body: '',
   booking: false,
 };
+// 종일 여러 날: 종일 진입 후 첫 캘린더 클릭은 '시작일', 그 다음 클릭이 '종료일'.
+let _rangeStartPicked = false;
 function endMin() { return S.start != null && S.duration != null ? S.start + S.duration : null; }
 // STEP2 가용성 계산용 시간창(분). 종일이면 하루 전체.
 function winStart() { return S.allday ? 0 : S.start; }
@@ -771,16 +803,27 @@ function renderCalendar() {
     if (dow === 0) cls.push('sun'); if (dow === 6) cls.push('sat');
     if (past) cls.push('past');
     if (ymd === tISO) cls.push('today-mark');
-    if (ymd === S.date) cls.push('sel');
+    const hasRange = S.allday && S.endDate && S.endDate > S.date;
+    if (ymd === S.date || (hasRange && ymd === S.endDate)) cls.push('sel');
+    else if (hasRange && ymd > S.date && ymd < S.endDate) cls.push('in-range');
     html += `<div class="${cls.join(' ')}" data-ymd="${ymd}" ${past ? '' : 'data-pick="1"'}>${d}</div>`;
   }
   html += `</div>`;
+  if (S.allday) html += `<div class="cal-hint">종일 예약은 시작일을 고른 뒤 종료일을 한 번 더 누르면 여러 날을 이어서 예약할 수 있어요.</div>`;
   cal.innerHTML = html;
   $('#calPrev').onclick = () => { if (S.viewM === 0) { S.viewM = 11; S.viewY--; } else S.viewM--; renderCalendar(); };
   $('#calNext').onclick = () => { if (S.viewM === 11) { S.viewM = 0; S.viewY++; } else S.viewM++; renderCalendar(); };
   $('#calToday').onclick = () => { S.viewY = today.getFullYear(); S.viewM = today.getMonth(); renderCalendar(); };
   cal.querySelectorAll('[data-pick]').forEach((el) => el.onclick = () => {
-    S.date = el.dataset.ymd; renderCalendar(); syncStep1(); updateHead();
+    const ymd = el.dataset.ymd;
+    if (S.allday) {
+      // 종일: 첫 클릭=시작일, 두번째=종료일(이후면), 범위 완성 후 클릭은 새 시작일
+      if (!_rangeStartPicked || S.endDate || ymd <= S.date) { S.date = ymd; S.endDate = null; _rangeStartPicked = true; }
+      else { S.endDate = ymd; }
+    } else {
+      S.date = ymd; S.endDate = null;
+    }
+    renderCalendar(); syncStep1(); updateHead();
   });
 }
 function renderSlots() {
@@ -790,7 +833,7 @@ function renderSlots() {
     const b = document.createElement('button');
     b.textContent = slotLabel(m);
     b.className = (!S.allday && S.start === m) ? 'on' : '';
-    b.onclick = () => { S.start = m; S.allday = false; renderSlots(); renderDurChips(); syncStep1(); updateHead(); };
+    b.onclick = () => { S.start = m; S.allday = false; S.endDate = null; _rangeStartPicked = false; renderSlots(); renderDurChips(); renderCalendar(); syncStep1(); updateHead(); };
     (m < 12 * 60 ? am : pm).appendChild(b);
   }
   // 종일이면 시작 시간 섹션을 흐리게(선택 불필요 표시)
@@ -802,9 +845,9 @@ function renderDurChips() {
     const isAll = b.dataset.min === 'allday';
     b.classList.toggle('on', isAll ? S.allday : (!S.allday && S.duration === +b.dataset.min));
     b.onclick = () => {
-      if (isAll) { S.allday = true; }
-      else { S.allday = false; S.duration = +b.dataset.min; }
-      renderDurChips(); renderSlots(); syncStep1(); updateHead();
+      if (isAll) { S.allday = true; _rangeStartPicked = false; }
+      else { S.allday = false; S.duration = +b.dataset.min; S.endDate = null; _rangeStartPicked = false; }
+      renderDurChips(); renderSlots(); renderCalendar(); syncStep1(); updateHead();
     };
   });
 }
@@ -862,8 +905,8 @@ function renderRoomTabs(perFloor, ready) {
   });
 }
 
-// 조회 결과 캐시(날짜 단위). 방 선택·탭 전환 시 재조회 없이 렌더만 한다.
-let _sched = { date: null, byFloor: null };
+// 조회 결과 캐시(날짜 범위 단위). 방 선택·탭 전환 시 재조회 없이 렌더만 한다.
+let _sched = { key: null, byFloor: null };
 
 // _sched.byFloor 로 화면만 그린다(네트워크 없음). byFloor 가 null 이면 로딩 상태.
 function renderStep2() {
@@ -901,25 +944,26 @@ function renderStep2() {
     group.appendChild(list);
     box.appendChild(group);
   });
-  $('#step2Sub').innerHTML = `${labelDate(S.date)} · <b>${S.allday ? '종일' : `${m2label(st)} ~ ${m2label(en)}`}</b>` +
+  $('#step2Sub').innerHTML = `${dateRangeLabel()} · <b>${S.allday ? alldayLabel() : `${m2label(st)} ~ ${m2label(en)}`}</b>` +
     (ready ? '' : ' · <span style="color:var(--muted)">예약 확인 중…</span>');
   $('#nextBtn').disabled = !(S.room && S.roomFloor);
 }
 
 async function loadStep2() {
-  if (_sched.date === S.date && _sched.byFloor) { renderStep2(); return; } // 캐시 사용
-  const forDate = S.date;
-  _sched = { date: forDate, byFloor: null };
+  const ymds = rangeYmds();
+  const key = ymds.join(',');
+  if (_sched.key === key && _sched.byFloor) { renderStep2(); return; } // 캐시 사용
+  _sched = { key, byFloor: null };
   renderStep2(); // 방 목록 즉시 표시(확인 중)
   let byFloor;
   try {
-    byFloor = await listEventsByFloor(forDate);
+    byFloor = ymds.length > 1 ? await listEventsByFloorRange(ymds) : await listEventsByFloor(ymds[0]);
   } catch (e) {
     toast('실데이터를 불러오지 못해 샘플로 표시합니다. 설정에서 키/CORS 확인.', 'err');
     byFloor = sampleByFloor();
   }
-  if (S.date !== forDate) return; // 그새 날짜 바뀌면 폐기
-  _sched = { date: forDate, byFloor };
+  if (rangeYmds().join(',') !== key) return; // 그새 날짜 바뀌면 폐기
+  _sched = { key, byFloor };
   renderStep2();
 }
 
@@ -1015,8 +1059,8 @@ function syncStep3() {
 function renderSummary() {
   const rows = [
     ['회의명', `<span class="tag">[${esc(S.room)}]</span> ${esc(S.meeting)}`],
-    ['날짜', labelDate(S.date)],
-    ['시간', S.allday ? '종일' : `${m2label(S.start)} ~ ${m2label(endMin())}`],
+    ['날짜', dateRangeLabel()],
+    ['시간', S.allday ? alldayLabel() : `${m2label(S.start)} ~ ${m2label(endMin())}`],
     ['회의실', `${esc(S.room)}${S.roomFloor ? ` <span style="color:var(--muted)">· ${esc(S.roomFloor.label)} ${esc(S.roomFloor.rooms.find((r) => r.id === S.room)?.loc || '')}</span>` : ''}`],
     ['참석자', S.attendees.length ? esc(S.attendees.map((a) => a.name).join(', ')) : '-'],
   ];
@@ -1046,10 +1090,20 @@ function labelDate(ymd) {
   const dow = ['일', '월', '화', '수', '목', '금', '토'][d.getDay()];
   return `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)} (${dow})`;
 }
+// 종일 여러 날이면 "시작 ~ 종료", 아니면 단일 날짜.
+function dateRangeLabel() {
+  return (S.allday && S.endDate && S.endDate > S.date)
+    ? `${labelDate(S.date)} ~ ${labelDate(S.endDate)}` : labelDate(S.date);
+}
+// 종일 표시: 여러 날이면 "종일 · N일".
+function alldayLabel() {
+  const n = rangeYmds().length;
+  return n > 1 ? `종일 · ${n}일` : '종일';
+}
 function updateHead() {
   const parts = [];
-  if (S.date) parts.push(labelDate(S.date));
-  if (S.allday) parts.push('종일');
+  if (S.date) parts.push(dateRangeLabel());
+  if (S.allday) parts.push(alldayLabel());
   else if (S.start != null) parts.push(m2label(S.start) + (S.duration ? ` · ${S.duration >= 60 ? (S.duration / 60) + '시간' : S.duration + '분'}` : ''));
   if (S.room) parts.push(`[${S.room}]` + (S.roomFloor ? ` ${S.roomFloor.label}` : ''));
   $('#headSummary').textContent = parts.join('   ·   ');
@@ -1086,7 +1140,7 @@ async function confirmBooking() {
   btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2 spin"></i> 예약 중…';
   try {
     await createBooking({
-      date: S.date, start: S.start, end: endMin(), allday: S.allday, room: S.room, floor: S.roomFloor,
+      date: S.date, endDate: S.endDate, start: S.start, end: endMin(), allday: S.allday, room: S.room, floor: S.roomFloor,
       meeting: S.meeting.trim(), attendees: S.attendees, body: S.body.trim(),
     });
     track('booking_confirmed', { floor: S.roomFloor ? S.roomFloor.label : '', room: S.room, live: mode() === 'direct' ? 1 : 0 });
@@ -1099,8 +1153,9 @@ async function confirmBooking() {
   S.booking = false;
 }
 function resetWizard() {
-  _sched = { date: null, byFloor: null }; // 방금 만든 예약이 반영되도록 캐시 무효화
-  Object.assign(S, { date: TODAY_YMD, viewY: today.getFullYear(), viewM: today.getMonth(), start: defaultStart(), duration: 60, allday: false, room: null, roomFloor: null, roomTab: FLOORS[0].label, meeting: '', attendees: [], body: '' });
+  _sched = { key: null, byFloor: null }; // 방금 만든 예약이 반영되도록 캐시 무효화
+  _rangeStartPicked = false;
+  Object.assign(S, { date: TODAY_YMD, endDate: null, viewY: today.getFullYear(), viewM: today.getMonth(), start: defaultStart(), duration: 60, allday: false, room: null, roomFloor: null, roomTab: FLOORS[0].label, meeting: '', attendees: [], body: '' });
   $('#confirmBtn').disabled = false; $('#confirmBtn').innerHTML = '<i class="ti ti-headphones"></i> 예약 확정';
   renderCalendar(); renderSlots(); renderDurChips(); updateHead();
   showStep(1);
