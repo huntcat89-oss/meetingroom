@@ -6,8 +6,8 @@
 const LS = {
   get key() { return localStorage.getItem('mr_apiKey') || ''; },
   set key(v) { v ? localStorage.setItem('mr_apiKey', v) : localStorage.removeItem('mr_apiKey'); },
-  get base() { return localStorage.getItem('mr_apiBase') || 'https://api.flow.team/v1'; },
-  set base(v) { localStorage.setItem('mr_apiBase', v || 'https://api.flow.team/v1'); },
+  get base() { return localStorage.getItem('mr_apiBase') || 'https://api.flow.team/user'; },
+  set base(v) { localStorage.setItem('mr_apiBase', v || 'https://api.flow.team/user'); },
   get botProp() { return localStorage.getItem('mr_botProp') || ''; },
   set botProp(v) { v ? localStorage.setItem('mr_botProp', v) : localStorage.removeItem('mr_botProp'); },
   get cal() { return localStorage.getItem('mr_calendarSrno') || ''; },
@@ -69,14 +69,14 @@ function sampleByFloor() {
 /* ============================================================
  * 플로우 REST 직접 호출 (브라우저)
  * ============================================================ */
-// 베이스에서 끝의 /user·/v1·슬래시를 떼고 항상 /v1 을 붙인다
-// (저장된 값이 어떤 형태든 https://api.flow.team/v1 로 정규화).
+// 베이스에서 끝의 /user·/v1·슬래시를 떼고 항상 /user 를 붙인다
+// (저장된 값이 어떤 형태든 https://api.flow.team/user 로 정규화).
 function apiUrl(path) {
   const host = LS.base.replace(/\/+$/, '').replace(/\/(user|v1)$/, '');
-  return host + '/v1' + path;
+  return host + '/user' + path;
 }
 
-// 플로우 /v1 API 는 x-flow-api-key 헤더로 인증(알림·글작성과 동일 방식).
+// 플로우 API 는 x-flow-api-key 헤더로 인증(알림·글작성과 동일 방식). /user 도 이 헤더를 받음.
 async function flowFetch(method, path, body) {
   const headers = { Accept: 'application/json', 'x-flow-api-key': LS.key };
   if (LS.botProp) headers['x-flow-bot-property'] = LS.botProp;
@@ -588,7 +588,7 @@ async function testConn() {
   if (!key) { st.className = 'settings-status'; st.textContent = '키가 없으면 샘플 데모로 동작합니다.'; return; }
   st.className = 'settings-status'; st.textContent = '연결 확인 중…';
   const prevKey = LS.key, prevBase = LS.base, prevProp = LS.botProp;
-  LS.key = key; LS.base = $('#sApiBase').value.trim() || 'https://api.flow.team/v1'; LS.botProp = $('#sBotProp').value.trim();
+  LS.key = key; LS.base = $('#sApiBase').value.trim() || 'https://api.flow.team/user'; LS.botProp = $('#sBotProp').value.trim();
   try {
     const r = await flowFetch('GET', '/employees?pageSize=1');
     if (r && r.status < 400) { st.className = 'settings-status ok'; st.textContent = '✓ 연결 성공'; }

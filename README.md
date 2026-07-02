@@ -43,12 +43,12 @@ const FLOORS = [
 
 - **샘플 데모 (기본)** — 키 없이 바로 동작. UI·자동추천·중복검사 흐름을 그대로 체험. 실제 예약은 생성되지 않음.
 - **플로우 실데이터** — 플로우 API 키(`x-flow-api-key`)를 입력하면 브라우저가 플로우 `/v1` API 를 직접 호출합니다(알림·글작성에 쓰는 그 키와 동일 방식). **키는 이 브라우저(localStorage)에만 저장**되고 서버·저장소로 전송되지 않습니다.
-  - 베이스 URL 기본값: `https://api.flow.team/v1`
-  - 인증 헤더: `x-flow-api-key: <키>` (봇 키면 `x-flow-bot-property` 도 설정에서 입력)
-  - 사용하는 API: 일정 조회·생성 `GET|POST /v1/calendars/events`, 구성원 `GET /v1/employees`, 캘린더 목록 `GET /v1/calendars`
-  - 예약 생성 캘린더는 층 프로젝트(`colaboSrno`)로 `/v1/calendars` 에서 자동 역매핑합니다.
+  - 베이스 URL 기본값: `https://api.flow.team/user`
+  - 인증 헤더: `x-flow-api-key: <키>` (봇 키면 `x-flow-bot-property` 도 설정에서 입력). `/user` API 도 이 헤더를 받음 — Bearer/OAuth 아님
+  - 사용하는 API: 일정 조회·생성 `GET|POST /user/calendars/events`, 구성원 `GET /user/employees`, 캘린더 목록 `GET /user/calendars`
+  - 예약 생성 캘린더는 층 프로젝트(`colaboSrno`)로 `/user/calendars` 에서 자동 역매핑합니다.
 
-> `/v1` API 는 브라우저 교차출처 요청을 허용합니다(`access-control-allow-origin: *`, `x-flow-api-key` 헤더 허용). 설정의 **연결 테스트**로 확인하세요.
+> `/user` API 는 브라우저 교차출처 요청을 허용합니다(`access-control-allow-origin: *`, `x-flow-api-key` 헤더 허용). 설정의 **연결 테스트**로 확인하세요.
 
 ## 로컬 서버 (선택 · CORS 우회, 실예약)
 
