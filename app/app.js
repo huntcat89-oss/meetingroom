@@ -83,6 +83,15 @@ async function flowFetch(method, path, body) {
   return { status: res.status, json };
 }
 
+// 플로우 REST 는 성공 응답을 { response: { success, data } } 로 감싼다. 실제 payload 만 꺼낸다.
+// (감싸지 않은 형태도 대비해 그대로 반환)
+function payload(json) {
+  if (json && json.response && typeof json.response === 'object' && 'data' in json.response) {
+    return json.response.data || {};
+  }
+  return json || {};
+}
+
 // 플로우 에러 응답에서 사람이 읽을 메시지를 뽑는다.
 function apiErr(r) {
   const j = r && r.json && r.json.response;
@@ -108,9 +117,11 @@ async function listEventsByFloor(ymd) {
   if (mode() === 'sample') return sampleByFloor();
   const r = await flowFetch('GET', `/calendars/events?startDateTime=${ymd}000000&endDateTime=${ymd}235959&pageSize=200`);
   if (!r || r.status >= 400 || !r.json) throw new Error('events ' + (r ? r.status : 'network'));
+  const d = payload(r.json);
+  const evs = Array.isArray(d) ? d : (d.events || d.list || []);
   const labelOf = {};
   FLOORS.forEach((f) => { labelOf[String(f.project)] = f.label; });
-  for (const ev of (r.json.events || [])) {
+  for (const ev of evs) {
     const label = labelOf[String(ev.colaboSrno || '')];
     if (!label) continue;
     if ((ev.eventStartDateTime || '').slice(0, 8) !== ymd) continue;
@@ -138,10 +149,11 @@ async function loadEmployees() {
       const q = '/employees' + (cursor ? `?cursor=${cursor}` : '');
       const r = await flowFetch('GET', q);
       if (!r || r.status >= 400 || !r.json) break;
-      const list = r.json.employees || r.json.list || [];
+      const d = payload(r.json);
+      const list = Array.isArray(d) ? d : (d.employees || d.list || []);
       out.push(...list);
-      if (!r.json.hasNext) break;
-      cursor = r.json.lastCursor;
+      if (!d.hasNext) break;
+      cursor = d.lastCursor;
       if (cursor == null || String(cursor) === '-1') break;
     }
     _employees = out.length ? out : SAMPLE_EMPLOYEES.slice();
@@ -163,7 +175,7 @@ const SAMPLE_EMPLOYEES = [
 async function resolveCalendarSrno(floor) {
   if (LS.cal) return LS.cal;
   const r = await flowFetch('GET', '/calendars');
-  const j = (r && r.json) || {};
+  const j = payload(r && r.json);
   const all = [...(j.editableCalendars || []), ...(j.projectCalendars || [])];
   const byProj = all.find((c) => String(c.colaboSrno || '') === String(floor.project) && /ADMIN|EDIT/i.test(c.userPermission || 'EDIT'));
   if (byProj) return byProj.calendarSrno;
