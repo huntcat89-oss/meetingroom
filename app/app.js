@@ -123,7 +123,7 @@ function roomMatch(a, b) {
 async function listSchedules(projectId, ymd) {
   const out = [];
   let cursor = null;
-  for (let page = 0; page < 6; page++) {
+  for (let page = 0; page < 3; page++) { // 최근 생성순 3페이지(≈300건)면 근래 날짜 예약을 충분히 포함
     // templateType 은 이 엔드포인트의 쿼리 파라미터가 아니므로 보내지 않고, 응답에서 93(일정)만 거른다.
     const q = `/posts/projects/${projectId}?pageSize=100` + (cursor ? `&cursor=${cursor}` : '');
     const r = await flowFetch('GET', q);
@@ -151,9 +151,7 @@ async function listSchedules(projectId, ymd) {
 async function listEventsByFloor(ymd) {
   if (mode() === 'sample') return sampleByFloor();
   const out = {};
-  for (const f of FLOORS) {
-    out[f.label] = await listSchedules(f.project, ymd);
-  }
+  await Promise.all(FLOORS.map(async (f) => { out[f.label] = await listSchedules(f.project, ymd); }));
   return out;
 }
 
@@ -327,79 +325,99 @@ function syncStep1() {
 /* ============================================================
  * STEP 2 — 회의실 추천
  * ============================================================ */
-function roomCard(r, floor) {
+function roomCard(r, floor, ready) {
   const sel = S.room === r.id && S.roomFloor && S.roomFloor.label === floor.label;
   const el = document.createElement('div');
-  el.className = 'room ' + (r.available ? 'available' : 'busy') + (sel && r.available ? ' sel' : '');
-  const loc = r.loc ? `<span class="r-loc">${esc(r.loc)}</span>` : '';
-  if (r.available) {
-    el.innerHTML = `<div class="r-top"><span class="r-name">${esc(r.id)}</span>${loc}` +
-      `${sel ? '<i class="ti ti-circle-check-filled r-check"></i>' : ''}</div>` +
-      `<div class="r-status">예약 가능</div>`;
-    el.onclick = () => { S.room = r.id; S.roomFloor = floor; updateHead(); loadStep2(); };
+  const loc = r.loc ? ` <span class="r-loc">${esc(r.loc)}</span>` : '';
+  const head = `<div class="r-top"><span class="r-name">${esc(r.id)}</span>${loc}</div>`;
+  if (!ready) {
+    el.className = 'room loading';
+    el.innerHTML = head + `<div class="r-status">확인 중…</div>`;
+  } else if (r.available) {
+    el.className = 'room available' + (sel ? ' sel' : '');
+    el.innerHTML = head + `<div class="r-status">예약 가능</div>` + (sel ? '<i class="ti ti-circle-check-filled r-check"></i>' : '');
+    el.onclick = () => { S.room = r.id; S.roomFloor = floor; updateHead(); renderStep2(); };
   } else {
     const c = r.conflict;
-    el.innerHTML = `<div class="r-top"><span class="r-name">${esc(r.id)}</span>${loc}</div>` +
-      `<div class="r-status"><span class="r-conflict"><i class="ti ti-lock"></i> ${esc(c.title || '사용 중')} · ${slotLabel(c.s)}–${slotLabel(c.e)}</span></div>`;
+    el.className = 'room busy';
+    el.innerHTML = head + `<div class="r-status"><span class="r-conflict"><i class="ti ti-lock"></i> ${esc(c.title || '사용 중')} · ${slotLabel(c.s)}–${slotLabel(c.e)}</span></div>`;
   }
   return el;
 }
 
-function renderRoomTabs(perFloor, total) {
+function renderRoomTabs(perFloor, ready) {
   const box = $('#roomTabs');
   box.innerHTML = '';
+  const total = ready ? perFloor.reduce((s, f) => s + f.availN, 0) : null;
   const tabs = [{ key: 'all', label: '전체', n: total }]
     .concat(perFloor.map((f) => ({ key: f.floor.label, label: f.floor.label, n: f.availN })));
   tabs.forEach((t) => {
     const b = document.createElement('button');
     b.className = S.roomTab === t.key ? 'on' : '';
-    b.innerHTML = `${esc(t.label)} <span style="opacity:.7;font-weight:500">${t.n}</span>`;
-    b.onclick = () => { if (S.roomTab !== t.key) { S.roomTab = t.key; loadStep2(); } };
+    b.innerHTML = `${esc(t.label)}` + (t.n == null ? '' : ` <span style="opacity:.7;font-weight:500">${t.n}</span>`);
+    b.onclick = () => { if (S.roomTab !== t.key) { S.roomTab = t.key; renderStep2(); } };
     box.appendChild(b);
   });
 }
 
-async function loadStep2() {
-  const box = $('#rooms');
-  box.innerHTML = `<div style="color:var(--muted);font-size:13px;padding:20px 0">불러오는 중…</div>`;
-  let byFloor;
-  try {
-    byFloor = await listEventsByFloor(S.date);
-  } catch (e) {
-    toast('실데이터를 불러오지 못해 샘플로 표시합니다. 설정에서 키/CORS 확인.', 'err');
-    byFloor = sampleByFloor();
-  }
+// 조회 결과 캐시(날짜 단위). 방 선택·탭 전환 시 재조회 없이 렌더만 한다.
+let _sched = { date: null, byFloor: null };
+
+// _sched.byFloor 로 화면만 그린다(네트워크 없음). byFloor 가 null 이면 로딩 상태.
+function renderStep2() {
+  const byFloor = _sched.byFloor;
+  const ready = !!byFloor;
   const st = S.start, en = endMin();
   const perFloor = FLOORS.map((floor) => {
-    const events = byFloor[floor.label] || [];
+    const events = (byFloor && byFloor[floor.label]) || [];
     const withStatus = floor.rooms.map((r) => {
+      if (!ready) return { ...r, available: true, conflict: null };
       const conflicts = events.filter((e) => roomMatch(e.room, r.id) && st < e.e && e.s < en).sort((a, b) => a.s - b.s);
       return { ...r, available: conflicts.length === 0, conflict: conflicts[0] || null };
-    }).sort((a, b) => (a.available === b.available) ? 0 : a.available ? -1 : 1);
-    return { floor, withStatus, availN: withStatus.filter((r) => r.available).length };
+    });
+    if (ready) withStatus.sort((a, b) => (a.available === b.available) ? 0 : a.available ? -1 : 1);
+    return { floor, withStatus, availN: ready ? withStatus.filter((r) => r.available).length : null };
   });
-  const total = perFloor.reduce((s, f) => s + f.availN, 0);
   if (!FLOORS.some((f) => f.label === S.roomTab) && S.roomTab !== 'all') S.roomTab = FLOORS[0].label;
-  renderRoomTabs(perFloor, total);
+  renderRoomTabs(perFloor, ready);
 
   const shown = S.roomTab === 'all' ? perFloor : perFloor.filter((f) => f.floor.label === S.roomTab);
   const showHead = shown.length > 1;
+  const box = $('#rooms');
   box.innerHTML = '';
   shown.forEach(({ floor, withStatus, availN }) => {
     const group = document.createElement('div');
     group.className = 'room-group';
     if (showHead) {
       group.innerHTML = `<div class="room-group-head"><span class="badge-floor">${esc(floor.label)}</span>` +
-        `<span class="cnt">예약 가능 ${availN} / ${floor.rooms.length}곳</span></div>`;
+        `<span class="cnt">${ready ? `예약 가능 ${availN} / ${floor.rooms.length}곳` : '확인 중…'}</span></div>`;
     }
     const list = document.createElement('div');
     list.className = 'rooms';
-    withStatus.forEach((r) => list.appendChild(roomCard(r, floor)));
+    withStatus.forEach((r) => list.appendChild(roomCard(r, floor, ready)));
     group.appendChild(list);
     box.appendChild(group);
   });
-  $('#step2Sub').innerHTML = `${labelDate(S.date)} · <b>${m2label(st)} ~ ${m2label(en)}</b>`;
+  $('#step2Sub').innerHTML = `${labelDate(S.date)} · <b>${m2label(st)} ~ ${m2label(en)}</b>` +
+    (ready ? '' : ' · <span style="color:var(--muted)">예약 확인 중…</span>');
   $('#nextBtn').disabled = !(S.room && S.roomFloor);
+}
+
+async function loadStep2() {
+  if (_sched.date === S.date && _sched.byFloor) { renderStep2(); return; } // 캐시 사용
+  const forDate = S.date;
+  _sched = { date: forDate, byFloor: null };
+  renderStep2(); // 방 목록 즉시 표시(확인 중)
+  let byFloor;
+  try {
+    byFloor = await listEventsByFloor(forDate);
+  } catch (e) {
+    toast('실데이터를 불러오지 못해 샘플로 표시합니다. 설정에서 키/CORS 확인.', 'err');
+    byFloor = sampleByFloor();
+  }
+  if (S.date !== forDate) return; // 그새 날짜 바뀌면 폐기
+  _sched = { date: forDate, byFloor };
+  renderStep2();
 }
 
 /* ============================================================
@@ -577,6 +595,7 @@ async function confirmBooking() {
   S.booking = false;
 }
 function resetWizard() {
+  _sched = { date: null, byFloor: null }; // 방금 만든 예약이 반영되도록 캐시 무효화
   Object.assign(S, { date: TODAY_YMD, viewY: today.getFullYear(), viewM: today.getMonth(), start: null, duration: 60, room: null, roomFloor: null, roomTab: FLOORS[0].label, meeting: '', attendees: [], body: '' });
   $('#confirmBtn').disabled = false; $('#confirmBtn').innerHTML = '<i class="ti ti-headphones"></i> 예약 확정';
   renderCalendar(); renderSlots(); renderDurChips(); updateHead();
