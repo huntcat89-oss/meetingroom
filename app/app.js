@@ -321,6 +321,16 @@ function syncStep1() {
   const ok = S.date && S.start != null && S.duration != null;
   $('#nextBtn').disabled = !ok;
 }
+// 오늘이면 현재 시각을 다음 30분 슬롯으로 올려 기본 시작시간으로. (예: 1:59→2:00)
+// 영업시간(08:00~21:30) 밖이면 null(사용자가 직접 선택).
+function defaultStart() {
+  const n = new Date();
+  const cur = n.getHours() * 60 + n.getMinutes();
+  let slot = Math.ceil(cur / 30) * 30;
+  if (slot < 8 * 60) slot = 8 * 60;
+  if (slot > 21 * 60 + 30) return null;
+  return slot;
+}
 
 /* ============================================================
  * STEP 2 — 회의실 추천
@@ -597,7 +607,7 @@ async function confirmBooking() {
 }
 function resetWizard() {
   _sched = { date: null, byFloor: null }; // 방금 만든 예약이 반영되도록 캐시 무효화
-  Object.assign(S, { date: TODAY_YMD, viewY: today.getFullYear(), viewM: today.getMonth(), start: null, duration: 60, room: null, roomFloor: null, roomTab: FLOORS[0].label, meeting: '', attendees: [], body: '' });
+  Object.assign(S, { date: TODAY_YMD, viewY: today.getFullYear(), viewM: today.getMonth(), start: defaultStart(), duration: 60, room: null, roomFloor: null, roomTab: FLOORS[0].label, meeting: '', attendees: [], body: '' });
   $('#confirmBtn').disabled = false; $('#confirmBtn').innerHTML = '<i class="ti ti-headphones"></i> 예약 확정';
   renderCalendar(); renderSlots(); renderDurChips(); updateHead();
   showStep(1);
@@ -659,6 +669,7 @@ function updateModeBadge() {
  * 초기화
  * ============================================================ */
 function init() {
+  S.start = defaultStart(); // 현재 시각 기준 기본 시작시간(오늘)
   renderCalendar(); renderSlots(); renderDurChips(); updateHead(); updateModeBadge();
   $('#nextBtn').onclick = next;
   $('#prevBtn').onclick = prev;
