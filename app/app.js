@@ -110,24 +110,40 @@ function parseBracket(name) {
   return mm ? { room: mm[1].trim(), title: mm[2].trim() } : { room: null, title: (name || '').trim() };
 }
 
-// 하루치 이벤트를 층(label)별로 묶어 반환 { '14F':[{room,title,s,e}], '5F':[...] }
+// 회의실 예약은 "프로젝트 일정(schedule)" 게시물이다.
+//   조회: GET /user/posts/projects/{projectId}?templateType=schedule (모든 참여자 예약 반환)
+//   최신 생성순 정렬이라 최근 몇 페이지를 받아 선택한 날짜(ymd)만 추린다.
+async function listSchedules(projectId, ymd) {
+  const out = [];
+  let cursor = null;
+  for (let page = 0; page < 5; page++) {
+    const q = `/posts/projects/${projectId}?templateType=schedule&pageSize=100` + (cursor ? `&cursor=${cursor}` : '');
+    const r = await flowFetch('GET', q);
+    if (!r || r.status >= 400 || !r.json) break;
+    const d = payload(r.json);
+    const posts = Array.isArray(d) ? d : (d.posts || d.list || []);
+    for (const p of posts) {
+      const s = String(p.scheduleStartDateTime || '');
+      const e = String(p.scheduleFinishDateTime || '');
+      if (s.slice(0, 8) !== ymd) continue; // 선택한 날짜의 예약만
+      const { room, title } = parseBracket(p.title);
+      if (!room) continue;
+      if (p.allDayYn === 'Y') out.push({ room, title, s: 0, e: 24 * 60 });
+      else out.push({ room, title, s: hm2m(s.slice(8)), e: hm2m(e.slice(8)) });
+    }
+    if (!d.hasNext) break;
+    cursor = d.lastCursor;
+    if (cursor == null || String(cursor) === '-1') break;
+  }
+  return out;
+}
+
+// 하루치 예약을 층(label)별로 묶어 반환 { '14F':[{room,title,s,e}], '5F':[...] }
 async function listEventsByFloor(ymd) {
-  const out = {};
-  FLOORS.forEach((f) => { out[f.label] = []; });
   if (mode() === 'sample') return sampleByFloor();
-  const r = await flowFetch('GET', `/calendars/events?startDateTime=${ymd}000000&endDateTime=${ymd}235959&pageSize=200`);
-  if (!r || r.status >= 400 || !r.json) throw new Error('events ' + (r ? r.status : 'network'));
-  const d = payload(r.json);
-  const evs = Array.isArray(d) ? d : (d.events || d.list || []);
-  const labelOf = {};
-  FLOORS.forEach((f) => { labelOf[String(f.project)] = f.label; });
-  for (const ev of evs) {
-    const label = labelOf[String(ev.colaboSrno || '')];
-    if (!label) continue;
-    if ((ev.eventStartDateTime || '').slice(0, 8) !== ymd) continue;
-    const { room, title } = parseBracket(ev.eventName);
-    if (!room) continue;
-    out[label].push({ room, title, s: hm2m(ev.eventStartDateTime.slice(8)), e: hm2m(ev.eventFinishDateTime.slice(8)) });
+  const out = {};
+  for (const f of FLOORS) {
+    out[f.label] = await listSchedules(f.project, ymd);
   }
   return out;
 }
@@ -171,42 +187,29 @@ const SAMPLE_EMPLOYEES = [
   { userId: 'juchan94', fullname: '김주찬', divisionName: 'PM2팀', responsibility: '팀장' },
 ];
 
-// 층(프로젝트)에 해당하는 편집 가능한 calendarSrno 역매핑
-async function resolveCalendarSrno(floor) {
-  if (LS.cal) return LS.cal;
-  const r = await flowFetch('GET', '/calendars');
-  const j = payload(r && r.json);
-  const all = [...(j.editableCalendars || []), ...(j.projectCalendars || [])];
-  const byProj = all.find((c) => String(c.colaboSrno || '') === String(floor.project) && /ADMIN|EDIT/i.test(c.userPermission || 'EDIT'));
-  if (byProj) return byProj.calendarSrno;
-  const ed = j.editableCalendars || [];
-  const pick = ed.find((c) => new RegExp(floor.label, 'i').test(c.customCalendarName || c.calendarName || '')) ||
-    ed.find((c) => /회의실|room/i.test(c.customCalendarName || c.calendarName || '')) || ed[0];
-  return pick ? pick.calendarSrno : '';
-}
-
+// 예약 생성 = 프로젝트 일정(schedule) 게시물 작성.
+//   POST /user/posts/projects/{projectId}/schedules
 async function createBooking(p) {
   if (mode() === 'sample') { await sleep(700); return { ok: true, demo: true }; }
-  const calendarSrno = await resolveCalendarSrno(p.floor);
-  if (!calendarSrno) throw new Error('편집 가능한 회의실 캘린더를 찾지 못했습니다. API 키에 해당 캘린더 편집 권한이 필요합니다.');
   const ymd = p.date;
   const names = p.attendees.map((a) => a.name);
-  const withId = p.attendees.filter((a) => a.userId).map((a) => ({ userId: a.userId }));
-  // eventBody = 사용자가 입력한 내용(최대 10000자). attendances 첨부 실패 시 참석자 이름을 본문에 덧붙여 보존.
-  const memo = (p.body || '').slice(0, 10000);
-  const bodyFallback = [memo, names.length ? `참석자: ${names.join(', ')}` : ''].filter(Boolean).join('\n\n');
-  const base = {
-    calendarSrno: String(calendarSrno),
-    eventName: `[${p.room}] ${p.meeting}`,
-    eventBody: memo,
-    allDayYn: 'N', gmtTime: 'GMT+09:00', timezone: 'Asia/Seoul', publicYn: 'Y', publicNameYn: 'Y',
-    eventStartTimestamp: ymd + m2hm(p.start) + '00',
-    eventFinishTimestamp: ymd + m2hm(p.end) + '00',
+  const attendance = p.attendees.filter((a) => a.userId).map((a) => ({ attendanceId: a.userId }));
+  const memo = [(p.body || '').trim(), names.length ? `참석자: ${names.join(', ')}` : '']
+    .filter(Boolean).join('\n\n').slice(0, 4000);
+  const body = {
+    title: `[${p.room}] ${p.meeting}`,
+    startDateTime: ymd + m2hm(p.start) + '00',
+    endDateTime: ymd + m2hm(p.end) + '00',
+    isAllDay: false,
+    viewPermission: 'all',
   };
-  // 참석자를 정식 attendances 로 첨부 시도, 실패(400)하면 참석자 이름을 본문에 넣어 재시도
-  let r = await flowFetch('POST', '/calendars/events', withId.length ? { ...base, attendances: withId } : base);
-  if (r && r.status === 400 && withId.length) {
-    r = await flowFetch('POST', '/calendars/events', { ...base, eventBody: bodyFallback });
+  if (memo) body.memo = memo;
+  if (attendance.length) body.attendance = attendance;
+  let r = await flowFetch('POST', `/posts/projects/${p.floor.project}/schedules`, body);
+  // attendance 형식 문제로 400이면 참석자 없이 재시도(참석자 이름은 memo 에 남음)
+  if (r && r.status === 400 && attendance.length) {
+    delete body.attendance;
+    r = await flowFetch('POST', `/posts/projects/${p.floor.project}/schedules`, body);
   }
   if (!r || r.status >= 400) throw new Error('예약 실패 — ' + apiErr(r));
   return { ok: true };

@@ -45,8 +45,11 @@ const FLOORS = [
 - **플로우 실데이터** — 플로우 API 키(`x-flow-api-key`)를 입력하면 브라우저가 플로우 `/v1` API 를 직접 호출합니다(알림·글작성에 쓰는 그 키와 동일 방식). **키는 이 브라우저(localStorage)에만 저장**되고 서버·저장소로 전송되지 않습니다.
   - 베이스 URL 기본값: `https://api.flow.team/user`
   - 인증 헤더: `x-flow-api-key: <키>` (봇 키면 `x-flow-bot-property` 도 설정에서 입력). `/user` API 도 이 헤더를 받음 — Bearer/OAuth 아님
-  - 사용하는 API: 일정 조회·생성 `GET|POST /user/calendars/events`, 구성원 `GET /user/employees`, 캘린더 목록 `GET /user/calendars`
-  - 예약 생성 캘린더는 층 프로젝트(`colaboSrno`)로 `/user/calendars` 에서 자동 역매핑합니다.
+  - 회의실 예약은 **프로젝트 일정(schedule) 게시물**입니다(캘린더 이벤트 아님).
+    - 조회: `GET /user/posts/projects/{projectId}?templateType=schedule` (모든 참여자 예약 반환)
+    - 생성: `POST /user/posts/projects/{projectId}/schedules`
+    - 구성원: `GET /user/employees`
+  - 층 = 프로젝트: 14F=`1635267`, 5F=`1555837` (`FLOORS[].project`)
 
 > `/user` API 는 브라우저 교차출처 요청을 허용합니다(`access-control-allow-origin: *`, `x-flow-api-key` 헤더 허용). 설정의 **연결 테스트**로 확인하세요.
 
