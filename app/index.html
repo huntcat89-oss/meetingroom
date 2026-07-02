@@ -601,11 +601,21 @@ async function listSchedules(projectId, ymd) {
       if (String(p.templateType) !== '93') continue; // 93 = 일정(schedule)
       const s = String(p.scheduleStartDateTime || '');
       const e = String(p.scheduleFinishDateTime || '');
-      if (s.slice(0, 8) !== ymd) continue; // 선택한 날짜의 예약만
+      if (s.length < 12) continue;
+      const sYmd = s.slice(0, 8), eYmd = e.slice(0, 8);
       const { room, title } = parseBracket(p.title);
       if (!room) continue;
-      if (p.allDayYn === 'Y') out.push({ room, title, s: 0, e: 24 * 60 });
-      else out.push({ room, title, s: hm2m(s.slice(8)), e: hm2m(e.slice(8)) });
+      const allday = p.allDayYn === 'Y';
+      if (allday || sYmd !== eYmd) {
+        // 종일/여러 날 예약: 종료(자정)는 제외한 범위 [sYmd, eYmd) 에 선택일이 들면 그날 종일 사용중
+        // (같은 날 시작·종료면 그 하루만)
+        const inRange = sYmd === eYmd ? ymd === sYmd : (ymd >= sYmd && ymd < eYmd);
+        if (!inRange) continue;
+        out.push({ room, title, s: 0, e: 24 * 60, allday: true });
+      } else {
+        if (sYmd !== ymd) continue; // 선택한 날짜의 예약만
+        out.push({ room, title, s: hm2m(s.slice(8)), e: hm2m(e.slice(8)) });
+      }
     }
     if (!d.hasNext) break;
     cursor = d.lastCursor;
@@ -817,7 +827,8 @@ function roomCard(r, floor, ready) {
   } else {
     const c = r.conflict;
     el.className = 'room busy';
-    el.innerHTML = head + `<div class="r-status"><span class="r-conflict"><i class="ti ti-lock"></i> ${esc(c.title || '사용 중')} · ${slotLabel(c.s)}–${slotLabel(c.e)}</span></div>`;
+    const when = c.allday ? '종일' : `${slotLabel(c.s)}–${slotLabel(c.e)}`;
+    el.innerHTML = head + `<div class="r-status"><span class="r-conflict"><i class="ti ti-lock"></i> ${esc(c.title || '사용 중')} · ${when}</span></div>`;
   }
   return el;
 }
