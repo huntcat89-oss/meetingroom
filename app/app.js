@@ -109,6 +109,13 @@ function parseBracket(name) {
   const mm = /^\s*\[([^\]]+)\]\s*(.*)$/.exec(name || '');
   return mm ? { room: mm[1].trim(), title: mm[2].trim() } : { room: null, title: (name || '').trim() };
 }
+// 예약 제목의 회의실명이 고정 목록과 정확히 안 맞아도 매칭(공백 무시 + 접두).
+// 예: 예약 "[멕시코]" ↔ 목록 "멕시코시티", "[510 스튜디오]" ↔ "510스튜디오"
+function roomMatch(a, b) {
+  a = String(a || '').replace(/\s+/g, ''); b = String(b || '').replace(/\s+/g, '');
+  if (!a || !b) return false;
+  return a === b || a.startsWith(b) || b.startsWith(a);
+}
 
 // 회의실 예약은 "프로젝트 일정(schedule)" 게시물이다.
 //   조회: GET /user/posts/projects/{projectId}?templateType=schedule (모든 참여자 예약 반환)
@@ -116,13 +123,15 @@ function parseBracket(name) {
 async function listSchedules(projectId, ymd) {
   const out = [];
   let cursor = null;
-  for (let page = 0; page < 5; page++) {
-    const q = `/posts/projects/${projectId}?templateType=schedule&pageSize=100` + (cursor ? `&cursor=${cursor}` : '');
+  for (let page = 0; page < 6; page++) {
+    // templateType 은 이 엔드포인트의 쿼리 파라미터가 아니므로 보내지 않고, 응답에서 93(일정)만 거른다.
+    const q = `/posts/projects/${projectId}?pageSize=100` + (cursor ? `&cursor=${cursor}` : '');
     const r = await flowFetch('GET', q);
     if (!r || r.status >= 400 || !r.json) break;
     const d = payload(r.json);
     const posts = Array.isArray(d) ? d : (d.posts || d.list || []);
     for (const p of posts) {
+      if (String(p.templateType) !== '93') continue; // 93 = 일정(schedule)
       const s = String(p.scheduleStartDateTime || '');
       const e = String(p.scheduleFinishDateTime || '');
       if (s.slice(0, 8) !== ymd) continue; // 선택한 날짜의 예약만
@@ -364,7 +373,7 @@ async function loadStep2() {
   const perFloor = FLOORS.map((floor) => {
     const events = byFloor[floor.label] || [];
     const withStatus = floor.rooms.map((r) => {
-      const conflicts = events.filter((e) => e.room === r.id && st < e.e && e.s < en).sort((a, b) => a.s - b.s);
+      const conflicts = events.filter((e) => roomMatch(e.room, r.id) && st < e.e && e.s < en).sort((a, b) => a.s - b.s);
       return { ...r, available: conflicts.length === 0, conflict: conflicts[0] || null };
     }).sort((a, b) => (a.available === b.available) ? 0 : a.available ? -1 : 1);
     return { floor, withStatus, availN: withStatus.filter((r) => r.available).length };
