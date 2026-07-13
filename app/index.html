@@ -770,7 +770,7 @@ const S = {
   allday: false,     // 종일 예약 여부
   room: null,        // 선택 회의실 id
   roomFloor: null,   // 선택 회의실이 속한 층(FLOORS 항목)
-  roomTab: FLOORS[0].label, // STEP2 층 카테고리 필터
+  roomTab: 'all', // STEP2 층 카테고리 필터
   meeting: '', attendees: [], body: '',
   booking: false,
 };
@@ -1158,7 +1158,7 @@ async function confirmBooking() {
 function resetWizard() {
   _sched = { key: null, byFloor: null }; // 방금 만든 예약이 반영되도록 캐시 무효화
   _rangeStartPicked = false;
-  Object.assign(S, { date: TODAY_YMD, endDate: null, viewY: today.getFullYear(), viewM: today.getMonth(), start: defaultStart(), duration: 60, allday: false, room: null, roomFloor: null, roomTab: FLOORS[0].label, meeting: '', attendees: [], body: '' });
+  Object.assign(S, { date: TODAY_YMD, endDate: null, viewY: today.getFullYear(), viewM: today.getMonth(), start: defaultStart(), duration: 60, allday: false, room: null, roomFloor: null, roomTab: 'all', meeting: '', attendees: [], body: '' });
   $('#confirmBtn').disabled = false; $('#confirmBtn').innerHTML = '<i class="ti ti-headphones"></i> 예약 확정';
   renderCalendar(); renderSlots(); renderDurChips(); updateHead();
   showStep(1);
