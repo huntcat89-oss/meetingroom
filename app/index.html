@@ -585,12 +585,13 @@ function parseBracket(name) {
   const mm = /^\s*\[([^\]]+)\]\s*(.*)$/.exec(name || '');
   return mm ? { room: mm[1].trim(), title: mm[2].trim() } : { room: null, title: (name || '').trim() };
 }
-// 예약 제목의 회의실명이 고정 목록과 정확히 안 맞아도 매칭(공백 무시 + 접두).
-// 예: 예약 "[멕시코]" ↔ 목록 "멕시코시티", "[510 스튜디오]" ↔ "510스튜디오"
+// 예약 제목의 회의실명 매칭: 공백·대소문자 무시 후 "정확히 일치"만.
+// 표기 변형(멕시코↔멕시코시티 등)은 각 방의 aliases 로만 처리한다.
+// (접두 매칭은 F↔FG, 510호↔510 스튜디오 처럼 짧은 이름끼리 오매칭돼서 제거함)
 function roomMatch(a, b) {
-  a = String(a || '').replace(/\s+/g, ''); b = String(b || '').replace(/\s+/g, '');
-  if (!a || !b) return false;
-  return a === b || a.startsWith(b) || b.startsWith(a);
+  a = String(a || '').replace(/\s+/g, '').toLowerCase();
+  b = String(b || '').replace(/\s+/g, '').toLowerCase();
+  return !!a && a === b;
 }
 
 // 회의실 예약은 "프로젝트 일정(schedule)" 게시물이다.
